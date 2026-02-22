@@ -4,20 +4,18 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { ConfigService } from './config';
 import helmet from 'helmet';
+import type { INestApplication } from '@nestjs/common';
 
-async function bootstrap() {
+async function createApp(): Promise<INestApplication> {
   const app = await NestFactory.create(AppModule);
 
-  // Get config service
   const configService = app.get(ConfigService);
 
   app.use(helmet());
 
-  // Enable CORS with explicit origin allow-list
   const allowedOrigins = configService.corsOrigins;
   app.enableCors({
     origin: (origin, callback) => {
-      // Allow mobile/native clients and same-origin requests without Origin header.
       if (!origin) {
         callback(null, true);
         return;
@@ -33,7 +31,6 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
   });
 
-  // Global validation pipe
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -42,7 +39,6 @@ async function bootstrap() {
     }),
   );
 
-  // Serve uploaded files statically (before API prefix).
   try {
     const path = require('path');
     const uploadsRoot =
@@ -55,30 +51,51 @@ async function bootstrap() {
     console.warn('Static uploads mount skipped:', (e as Error)?.message);
   }
 
-  // API prefix
   app.setGlobalPrefix('api');
 
-  // Swagger documentation
   const swaggerConfig = new DocumentBuilder()
     .setTitle('AI Outfit API')
     .setDescription('API for AI Outfit Generator mobile application')
     .setVersion('1.0')
     .addBearerAuth()
     .build();
-
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('api/docs', app, document);
 
+  return app;
+}
+
+/** Run as a long-lived server (local, PM2, etc.) */
+async function bootstrap() {
+  const app = await createApp();
+  const configService = app.get(ConfigService);
   const port = configService.port;
   await app.listen(port);
-
   console.log(`🚀 AI Outfit API is running on: http://localhost:${port}`);
-  console.log(`📚 Swagger docs available at: http://localhost:${port}/api/docs`);
+  console.log(`📚 Swagger docs at: http://localhost:${port}/api/docs`);
   console.log(`🌍 Environment: ${configService.nodeEnv}`);
 }
 
-bootstrap().catch((err) => {
-  console.error('Bootstrap failed:', err);
-  process.exit(1);
-});
+// Vercel serverless: export a handler so the platform can invoke it per request.
+let cachedApp: INestApplication | null = null;
 
+async function getApp(): Promise<INestApplication> {
+  if (cachedApp) return cachedApp;
+  cachedApp = await createApp();
+  await cachedApp.init();
+  return cachedApp;
+}
+
+export default async function handler(req: any, res: any) {
+  const app = await getApp();
+  const expressApp = app.getHttpAdapter().getInstance();
+  return expressApp(req, res);
+}
+
+// When not on Vercel, run the normal server.
+if (process.env.VERCEL !== '1') {
+  bootstrap().catch((err) => {
+    console.error('Bootstrap failed:', err);
+    process.exit(1);
+  });
+}
