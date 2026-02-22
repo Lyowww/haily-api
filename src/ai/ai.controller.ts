@@ -52,6 +52,11 @@ class GenerateOutfitDto {
   @IsString()
   userPhotoUrl!: string;
 
+  @ApiProperty({ required: false, description: 'Base64-encoded user photo. Use when URL returns 404 (e.g. Vercel ephemeral uploads).' })
+  @IsOptional()
+  @IsString()
+  userPhotoBase64?: string;
+
   @ApiProperty({ type: UserProfileDto, required: false })
   @IsOptional()
   @ValidateNested()

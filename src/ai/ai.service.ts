@@ -12,6 +12,8 @@ import { getUploadsRoot, getUploadsSubdir, ensureUploadsDir } from '../utils/upl
 
 interface OutfitGenerationRequest {
   userPhotoUrl: string;
+  /** Optional base64 image data. Use when URL is not reachable (e.g. same-host on Vercel). */
+  userPhotoBase64?: string;
   user?: {
     sex?: 'male' | 'female';
     age?: number;
@@ -160,6 +162,56 @@ export class AIService {
   }
 
   /**
+   * Decode base64 (or data URL) to buffer and convert to File for OpenAI API.
+   */
+  private async base64ToFile(
+    base64: string,
+    filename: string,
+    addPadding = false,
+  ): Promise<{ file: any; width: number; height: number }> {
+    let buffer: Buffer;
+    let mimeType = 'image/jpeg';
+
+    if (base64.startsWith('data:')) {
+      const match = base64.match(/^data:([^;]+);base64,(.+)$/);
+      if (!match) throw new Error('Invalid data URL for user photo');
+      mimeType = match[1].trim().toLowerCase();
+      if (!mimeType.startsWith('image/')) mimeType = 'image/jpeg';
+      buffer = Buffer.from(match[2], 'base64');
+    } else {
+      buffer = Buffer.from(base64, 'base64');
+    }
+
+    if (!buffer.length) throw new Error('Empty image data');
+    return this.bufferToFile(buffer, mimeType, filename, addPadding);
+  }
+
+  /**
+   * Convert image buffer to File for OpenAI API (shared by URL and base64 paths).
+   */
+  private async bufferToFile(
+    buffer: Buffer,
+    mimeType: string,
+    filename: string,
+    addPadding = false,
+  ): Promise<{ file: any; width: number; height: number }> {
+    const preparedBuffer = addPadding
+      ? Buffer.from(await this.padImageToSafeFrame(buffer, 0.2))
+      : buffer;
+
+    const meta = await sharp(preparedBuffer).metadata();
+    if (!meta.width || !meta.height) {
+      throw new Error('Invalid image dimensions');
+    }
+
+    const blob = new Blob([new Uint8Array(preparedBuffer)], { type: mimeType });
+    // @ts-ignore - File constructor available in Node 18+
+    const file = new File([blob], filename, { type: mimeType });
+
+    return { file, width: meta.width, height: meta.height };
+  }
+
+  /**
    * Convert URL to File object for OpenAI API
    */
   private async urlToFile(
@@ -168,20 +220,7 @@ export class AIService {
     addPadding = false,
   ): Promise<{ file: any; width: number; height: number }> {
     const read = await this.readImageBuffer(imageUrl);
-    const preparedBuffer = addPadding
-      ? Buffer.from(await this.padImageToSafeFrame(read.buffer, 0.2))
-      : read.buffer;
-
-    const meta = await sharp(preparedBuffer).metadata();
-    if (!meta.width || !meta.height) {
-      throw new Error('Invalid image dimensions');
-    }
-
-    const blob = new Blob([new Uint8Array(preparedBuffer)], { type: read.mimeType });
-    // @ts-ignore - File constructor available in Node 18+
-    const file = new File([blob], filename, { type: read.mimeType });
-
-    return { file, width: meta.width, height: meta.height };
+    return this.bufferToFile(read.buffer, read.mimeType, filename, addPadding);
   }
 
   /**
@@ -284,8 +323,10 @@ ${svgRects}
       }
 
       // Convert ALL images to File objects for OpenAI
-      // Add padding to person photo to prevent face/feet cropping
-      const personPrepared = await this.urlToFile(request.userPhotoUrl, 'person.png', true);
+      // Prefer base64 user photo when provided (avoids 404 when URL points to same host on Vercel)
+      const personPrepared = request.userPhotoBase64
+        ? await this.base64ToFile(request.userPhotoBase64, 'person.png', true)
+        : await this.urlToFile(request.userPhotoUrl, 'person.png', true);
       const editMask = await this.buildPoseEditMask(personPrepared.width, personPrepared.height);
       const imageFiles: any[] = [personPrepared.file];
 
