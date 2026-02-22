@@ -20,6 +20,10 @@ uploads/
 dist/
 build/
 
+# Compiled JS in src (Nest outputs to dist/; avoid committing stale .js)
+src/**/*.js
+!src/**/*.config.js
+
 # Logs
 *.log
 npm-debug.log*
