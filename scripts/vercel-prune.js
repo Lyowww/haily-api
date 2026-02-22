@@ -1,18 +1,27 @@
 #!/usr/bin/env node
 /**
- * On Vercel, remove @imgly/background-removal-node after install to stay under the 250 MB
- * serverless limit. The app uses dynamic import and handles missing module (cutout is skipped).
+ * On Vercel:
+ * - Remove @imgly/background-removal-node to stay under the 250 MB serverless limit.
+ * - Remove bcrypt (native addon) so only bcryptjs is used; avoids "invalid ELF header" on Linux.
  */
 if (process.env.VERCEL) {
   const fs = require('fs');
   const path = require('path');
-  const dir = path.join(process.cwd(), 'node_modules', '@imgly');
-  try {
-    if (fs.existsSync(dir)) {
-      fs.rmSync(dir, { recursive: true });
-      console.log('Pruned node_modules/@imgly for Vercel (250 MB limit).');
+  const cwd = process.cwd();
+
+  const toPrune = [
+    { dir: path.join(cwd, 'node_modules', '@imgly'), name: '@imgly (250 MB limit)' },
+    { dir: path.join(cwd, 'node_modules', 'bcrypt'), name: 'bcrypt (use bcryptjs on Linux)' },
+  ];
+
+  for (const { dir, name } of toPrune) {
+    try {
+      if (fs.existsSync(dir)) {
+        fs.rmSync(dir, { recursive: true });
+        console.log('Pruned', name);
+      }
+    } catch (e) {
+      console.warn('Could not prune', name, ':', e.message);
     }
-  } catch (e) {
-    console.warn('Could not prune @imgly:', e.message);
   }
 }
