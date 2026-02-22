@@ -196,4 +196,4 @@ If you hit limits or need longer timeouts, consider Vercel Pro or another host (
   Cold start or slow DB/Redis. On free tier, timeout is 10 s; optimize or move to a host with longer limits if needed.
 
 - **“Serverless Function has exceeded the unzipped maximum size of 250 MB”**  
-  The project excludes `@imgly/background-removal-node` on Vercel (via `vercel.json` and `.vercelignore`) to stay under the limit. **Background removal (cutout) is disabled on Vercel**—wardrobe cutouts and outfit cutouts will be skipped; the rest of the API works. To have cutout on Vercel you’d need to move that feature to a separate service (e.g. another host) or use a different deployment (Railway, Render, Fly.io) without this limit.
+  A **postinstall** script (`scripts/vercel-prune.js`) removes `node_modules/@imgly` when the `VERCEL` env var is set (Vercel sets this automatically). That keeps the bundle under 250 MB. **Background removal (cutout) is disabled on Vercel**—wardrobe and outfit cutouts are skipped; the rest of the API works. Locally, `@imgly` stays installed and cutout works.
