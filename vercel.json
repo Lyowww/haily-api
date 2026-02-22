@@ -1,9 +1,4 @@
 {
   "version": 2,
-  "buildCommand": "npm run build",
-  "functions": {
-    "**": {
-      "excludeFiles": "node_modules/@imgly/**"
-    }
-  }
+  "buildCommand": "npm run build"
 }
