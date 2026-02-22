@@ -113,8 +113,11 @@ export class AIService {
     imageUrl: string,
   ): Promise<{ buffer: Buffer; mimeType: string }> {
     try {
-      // Prefer local filesystem lookup for uploads, independent of host/IP.
-      const localUploadsPath = this.resolveLocalUploadsPath(imageUrl);
+      // On Vercel, /tmp is not shared between invocations — uploads from other requests
+      // are not on this instance. Always download from the URL.
+      const isVercel = process.env.VERCEL === '1';
+      const localUploadsPath = isVercel ? null : this.resolveLocalUploadsPath(imageUrl);
+
       if (localUploadsPath) {
         const filepath = path.join(getUploadsRoot(), localUploadsPath.replace(/^\/uploads\/?/, ''));
         console.log('📁 Reading local file:', filepath);
