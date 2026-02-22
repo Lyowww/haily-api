@@ -194,3 +194,6 @@ If you hit limits or need longer timeouts, consider Vercel Pro or another host (
 
 - **502 or timeout**  
   Cold start or slow DB/Redis. On free tier, timeout is 10 s; optimize or move to a host with longer limits if needed.
+
+- **“Serverless Function has exceeded the unzipped maximum size of 250 MB”**  
+  The project excludes `@imgly/background-removal-node` on Vercel (via `vercel.json` and `.vercelignore`) to stay under the limit. **Background removal (cutout) is disabled on Vercel**—wardrobe cutouts and outfit cutouts will be skipped; the rest of the API works. To have cutout on Vercel you’d need to move that feature to a separate service (e.g. another host) or use a different deployment (Railway, Render, Fly.io) without this limit.

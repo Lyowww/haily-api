@@ -1,0 +1,3 @@
+# Exclude heavy optional dependency from serverless bundle (250 MB limit).
+# Background removal is disabled on Vercel; cutout endpoints return null/skip.
+node_modules/@imgly

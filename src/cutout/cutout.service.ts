@@ -1,9 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { removeBackground } from '@imgly/background-removal-node';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import sharp from 'sharp';
 import { v4 as uuidv4 } from 'uuid';
+
+/**
+ * Cutout (background removal) uses @imgly/background-removal-node, which is very large (~200MB+).
+ * On Vercel we exclude it via .vercelignore to stay under the 250MB serverless limit.
+ * We dynamic-import it only when needed; if missing, cutout is skipped and we return null.
+ */
+async function loadRemoveBackground(): Promise<(input: Buffer) => Promise<Blob>> {
+  const mod = await import('@imgly/background-removal-node');
+  return mod.removeBackground;
+}
 
 @Injectable()
 export class CutoutService {
@@ -12,6 +21,7 @@ export class CutoutService {
   /**
    * Generate a transparent PNG cutout for an uploaded image and store it under /uploads/cutouts.
    * Accepts either a relative "/uploads/..." URL or a full URL that contains "/uploads/...".
+   * On Vercel (where @imgly/background-removal-node is excluded), returns null and cutout is skipped.
    */
   async generateCutoutForImageUrl(imageUrl: string): Promise<
     | {
@@ -26,6 +36,16 @@ export class CutoutService {
 
     try {
       const inputBuffer = await fs.readFile(inputAbsPath);
+
+      let removeBackground: (input: Buffer) => Promise<Blob>;
+      try {
+        removeBackground = await loadRemoveBackground();
+      } catch (e) {
+        this.logger.warn(
+          'Background removal not available (e.g. excluded on Vercel). Skipping cutout.',
+        );
+        return null;
+      }
 
       // Background removal returns a PNG-encoded Blob by default.
       const blob = await removeBackground(inputBuffer);
