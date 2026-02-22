@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '../config';
 import OpenAI from 'openai';
 import { AnalyzeWardrobeDto } from './dto/analyze-wardrobe.dto';
@@ -136,6 +136,14 @@ export class AIService {
           const protocol = imageUrl.startsWith('https') ? https : http;
           const req = protocol.get(imageUrl, (response) => {
             if (!response.statusCode || response.statusCode >= 400) {
+              const isVercel = process.env.VERCEL === '1';
+              const isOwnUpload = imageUrl.includes('/uploads/');
+              if (response.statusCode === 404 && isVercel && isOwnUpload) {
+                reject(new BadRequestException(
+                  'On Vercel, upload files are not available by URL (ephemeral storage). Send the user photo as base64 in the request body: set "userPhotoBase64" to a data URL (e.g. data:image/jpeg;base64,...) or raw base64 string.',
+                ));
+                return;
+              }
               reject(new Error(`Failed to download image (${response.statusCode ?? 'unknown'}) from ${imageUrl}`));
               return;
             }
