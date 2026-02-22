@@ -43,9 +43,17 @@ async function bootstrap() {
   );
 
   // Serve uploaded files statically (before API prefix).
-  const express = require('express');
-  const { getUploadsRoot } = require('./utils/uploads-path');
-  app.use('/uploads', express.static(getUploadsRoot()));
+  try {
+    const path = require('path');
+    const uploadsRoot =
+      process.env.VERCEL === '1'
+        ? path.join('/tmp', 'uploads')
+        : path.join(process.cwd(), 'uploads');
+    const express = require('express');
+    app.use('/uploads', express.static(uploadsRoot));
+  } catch (e) {
+    console.warn('Static uploads mount skipped:', (e as Error)?.message);
+  }
 
   // API prefix
   app.setGlobalPrefix('api');
@@ -69,5 +77,8 @@ async function bootstrap() {
   console.log(`🌍 Environment: ${configService.nodeEnv}`);
 }
 
-bootstrap();
+bootstrap().catch((err) => {
+  console.error('Bootstrap failed:', err);
+  process.exit(1);
+});
 
