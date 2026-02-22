@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '../config';
 import OpenAI from 'openai';
 import { AnalyzeWardrobeDto } from './dto/analyze-wardrobe.dto';
@@ -465,7 +465,12 @@ ${styleContext ? `STYLE CONTEXT (FOLLOW AS A SECONDARY CONSTRAINT):\n${styleCont
         localPath: fullLocalPath, // Same URL for consistency
         prompt: prompt,
       };
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.code === 'invalid_api_key' || error?.status === 401) {
+        throw new UnauthorizedException(
+          'OpenAI API key is invalid or expired. Update OPENAI_API_KEY in Vercel (Settings → Environment Variables) or in .env. Get a key at https://platform.openai.com/api-keys',
+        );
+      }
       console.error('Error generating outfit image:', error);
       throw error;
     }
@@ -511,7 +516,12 @@ ${styleContext ? `STYLE CONTEXT (FOLLOW AS A SECONDARY CONSTRAINT):\n${styleCont
       }
 
       return { imageUrl };
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.code === 'invalid_api_key' || error?.status === 401) {
+        throw new UnauthorizedException(
+          'OpenAI API key is invalid or expired. Update OPENAI_API_KEY in Vercel (Settings → Environment Variables) or in .env. Get a key at https://platform.openai.com/api-keys',
+        );
+      }
       console.error('Error generating outfit composite:', error);
       throw error;
     }
