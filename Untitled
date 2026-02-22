@@ -1,0 +1,10 @@
+NODE_ENV=development
+PORT=3000
+DATABASE_URL=file:./database.sqlite
+REDIS_URL=redis://localhost:6379
+S3_ENDPOINT=https://s3.amazonaws.com
+S3_BUCKET=aioutfit-uploads
+S3_ACCESS_KEY=your-access-key-here
+S3_SECRET_KEY=your-secret-key-here
+OPENAI_API_KEY=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
+JWT_SECRET=your-super-secret-jwt-key-minimum-32-characters-long-for-development-only
