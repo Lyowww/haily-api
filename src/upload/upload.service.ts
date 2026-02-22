@@ -3,6 +3,7 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import { getUploadsRoot, ensureUploadsDir } from '../utils/uploads-path';
 
 export interface UploadResult {
   filename: string;
@@ -28,11 +29,8 @@ export class UploadService {
   constructor(
     // private configService: ConfigService
   ) {
-    // Create uploads directory if it doesn't exist
-    this.uploadDir = path.join(process.cwd(), 'uploads');
-    if (!fs.existsSync(this.uploadDir)) {
-      fs.mkdirSync(this.uploadDir, { recursive: true });
-    }
+    this.uploadDir = getUploadsRoot();
+    ensureUploadsDir(this.uploadDir);
   }
 
   async uploadFile(file: Express.Multer.File): Promise<UploadResult> {

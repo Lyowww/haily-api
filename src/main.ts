@@ -42,9 +42,10 @@ async function bootstrap() {
     }),
   );
 
-  // Serve uploaded files statically (before API prefix)
+  // Serve uploaded files statically (before API prefix).
   const express = require('express');
-  app.use('/uploads', express.static('uploads'));
+  const { getUploadsRoot } = require('./utils/uploads-path');
+  app.use('/uploads', express.static(getUploadsRoot()));
 
   // API prefix
   app.setGlobalPrefix('api');

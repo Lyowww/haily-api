@@ -8,6 +8,7 @@ import {
   CATEGORY_SYNONYMS,
   COLOR_SYNONYMS,
 } from './enums';
+import { getUploadsRoot } from '../utils/uploads-path';
 
 export interface RecognitionInput {
   imageUrl: string;
@@ -51,7 +52,7 @@ export class WardrobeRecognitionService {
         
         // Extract filename from URL
         const filename = imageUrl.split('/').pop();
-        const filepath = path.join(process.cwd(), 'uploads', filename);
+        const filepath = path.join(getUploadsRoot(), filename);
         
         console.log('📷 Converting local image to base64:', filepath);
         

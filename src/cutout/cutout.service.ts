@@ -3,6 +3,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import sharp from 'sharp';
 import { v4 as uuidv4 } from 'uuid';
+import { getUploadsRoot, getUploadsSubdir, ensureUploadsDir } from '../utils/uploads-path';
 
 /**
  * Cutout (background removal) uses @imgly/background-removal-node, which is very large (~200MB+).
@@ -32,7 +33,7 @@ export class CutoutService {
     const uploadsPathname = this.extractUploadsPathname(imageUrl);
     if (!uploadsPathname) return null;
 
-    const inputAbsPath = path.join(process.cwd(), uploadsPathname.replace(/^\//, ''));
+    const inputAbsPath = path.join(getUploadsRoot(), uploadsPathname.replace(/^\/uploads\/?/, ''));
 
     try {
       const inputBuffer = await fs.readFile(inputAbsPath);
@@ -51,8 +52,8 @@ export class CutoutService {
       const blob = await removeBackground(inputBuffer);
       const pngBuffer = Buffer.from(await blob.arrayBuffer());
 
-      const cutoutsDirAbs = path.join(process.cwd(), 'uploads', 'cutouts');
-      await fs.mkdir(cutoutsDirAbs, { recursive: true });
+      const cutoutsDirAbs = getUploadsSubdir('cutouts');
+      ensureUploadsDir(cutoutsDirAbs);
 
       const filename = `${uuidv4()}.png`;
       const outputAbsPath = path.join(cutoutsDirAbs, filename);

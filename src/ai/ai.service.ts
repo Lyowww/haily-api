@@ -8,6 +8,7 @@ import * as https from 'https';
 import * as http from 'http';
 import sharp from 'sharp';
 import { CutoutService } from '../cutout/cutout.service';
+import { getUploadsRoot, getUploadsSubdir, ensureUploadsDir } from '../utils/uploads-path';
 
 interface OutfitGenerationRequest {
   userPhotoUrl: string;
@@ -115,8 +116,7 @@ export class AIService {
       // Prefer local filesystem lookup for uploads, independent of host/IP.
       const localUploadsPath = this.resolveLocalUploadsPath(imageUrl);
       if (localUploadsPath) {
-        // If the URL path starts with "/uploads/...", path.join would discard process.cwd().
-        const filepath = path.join(process.cwd(), localUploadsPath.replace(/^\/+/, ''));
+        const filepath = path.join(getUploadsRoot(), localUploadsPath.replace(/^\/uploads\/?/, ''));
         console.log('📁 Reading local file:', filepath);
 
         const buffer = fs.readFileSync(filepath);
@@ -220,12 +220,8 @@ ${svgRects}
    * Download image from URL and save to local storage
    */
   private async downloadAndSaveImage(imageUrl: string, filename: string): Promise<string> {
-    const uploadsDir = path.join(process.cwd(), 'uploads', 'generated');
-
-    // Create directory if it doesn't exist
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-    }
+    const uploadsDir = getUploadsSubdir('generated');
+    ensureUploadsDir(uploadsDir);
 
     const filepath = path.join(uploadsDir, filename);
     const file = fs.createWriteStream(filepath);
@@ -431,12 +427,8 @@ ${styleContext ? `STYLE CONTEXT (FOLLOW AS A SECONDARY CONSTRAINT):\n${styleCont
       if (imageB64) {
         // Save base64 image directly to disk
         console.log('Image received as base64, saving to disk...');
-        const uploadsDir = path.join(process.cwd(), 'uploads', 'generated');
-
-        if (!fs.existsSync(uploadsDir)) {
-          fs.mkdirSync(uploadsDir, { recursive: true });
-        }
-
+        const uploadsDir = getUploadsSubdir('generated');
+        ensureUploadsDir(uploadsDir);
         const filepath = path.join(uploadsDir, filename);
         const buffer = Buffer.from(imageB64, 'base64');
         fs.writeFileSync(filepath, buffer);
