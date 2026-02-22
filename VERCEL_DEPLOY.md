@@ -160,6 +160,14 @@ If you hit limits or need longer timeouts, consider Vercel Pro or another host (
 
 ---
 
+## Your .env vs Vercel
+
+- **Local:** Your `.env` file is only for running the app on your machine. It is in `.gitignore` and must **never** be committed.
+- **Vercel:** Env vars are set in the Vercel dashboard (Project → Settings → Environment Variables). Vercel does **not** read your `.env` file. Add every variable there with the **exact names** from `VERCEL_ENV_NAMES.md`.
+- **S3 and JWT on Vercel:** Use **real** S3 credentials and a **strong** JWT secret (e.g. `openssl rand -base64 32`). Placeholder values like `your-access-key-here` will cause "Environment validation failed" at runtime.
+
+---
+
 ## Quick checklist
 
 - [ ] Repo pushed to GitHub (or GitLab/Bitbucket).
