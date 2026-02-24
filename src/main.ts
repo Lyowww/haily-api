@@ -65,8 +65,10 @@ async function createApp(): Promise<INestApplication> {
     .addBearerAuth()
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
-  // Use 'docs' so with global prefix 'api' the UI is at /api/docs and assets at /api/docs/* load correctly
-  SwaggerModule.setup('docs', app, document, {
+  // Use full path 'api/docs' so Swagger routes match when request path is /api/docs (Vercel + direct Express)
+  SwaggerModule.setup('api/docs', app, document, {
+    useGlobalPrefix: false, // we already included 'api' in the path above
+    jsonDocumentUrl: '/api/docs-json',
     swaggerOptions: {
       persistAuthorization: true,
     },
