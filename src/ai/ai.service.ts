@@ -9,6 +9,7 @@ import * as http from 'http';
 import sharp from 'sharp';
 import { CutoutService } from '../cutout/cutout.service';
 import { UploadService } from '../upload/upload.service';
+import { S3Service } from '../upload/s3.service';
 import { getUploadsRoot } from '../utils/uploads-path';
 
 interface OutfitGenerationRequest {
@@ -46,6 +47,7 @@ export class AIService {
     private configService: ConfigService,
     private cutoutService: CutoutService,
     private uploadService: UploadService,
+    private s3Service: S3Service,
   ) {
     this.openai = new OpenAI({
       apiKey: this.configService.openAiApiKey,
@@ -145,9 +147,19 @@ export class AIService {
         }
         const mimeType = filepath.endsWith('.png') ? 'image/png' : 'image/jpeg';
         return { buffer, mimeType };
-      } else {
-        // Remote URL - download it first
-        return new Promise((resolve, reject) => {
+      }
+
+      // Our S3 bucket URL: use credentialed GetObject (works with private bucket)
+      if (this.s3Service.isEnabled && this.s3Service.isOurBucketUrl(imageUrl)) {
+        const { body, contentType } = await this.s3Service.getObjectByUrl(imageUrl);
+        return {
+          buffer: body,
+          mimeType: contentType ?? (imageUrl.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg'),
+        };
+      }
+
+      // Other remote URL - download via HTTP
+      return new Promise((resolve, reject) => {
           const protocol = imageUrl.startsWith('https') ? https : http;
           const req = protocol.get(imageUrl, (response) => {
             if (!response.statusCode || response.statusCode >= 400) {
@@ -177,7 +189,6 @@ export class AIService {
           });
           req.on('error', reject);
         });
-      }
     } catch (error) {
       console.error('❌ Error reading image buffer:', error);
       throw error;

@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { ConfigService } from '../config';
 
 /**
  * S3 operations for uploads. Used when S3 is configured (e.g. on Vercel).
  * Builds public object URLs in the form https://<bucket>.s3.<region>.amazonaws.com/<key>.
+ * Use getObject/getObjectByUrl to read objects with credentials (bucket can stay private).
  */
 @Injectable()
 export class S3Service {
@@ -34,6 +35,66 @@ export class S3Service {
     return this.config.isS3Configured && this.client !== null;
   }
 
+  /** True if url is our bucket's object URL (same bucket + region). */
+  isOurBucketUrl(url: string): boolean {
+    if (!this.bucket || !this.region) return false;
+    try {
+      const u = new URL(url);
+      const expectedHost = `${this.bucket}.s3.${this.region}.amazonaws.com`;
+      return u.protocol === 'https:' && u.hostname === expectedHost && u.pathname.startsWith('/');
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Extract S3 object key from our bucket object URL.
+   * e.g. https://hayli-uploads.s3.eu-north-1.amazonaws.com/uploads/abc.jpg -> uploads/abc.jpg
+   */
+  keyFromOurBucketUrl(url: string): string | null {
+    if (!this.isOurBucketUrl(url)) return null;
+    try {
+      const pathname = new URL(url).pathname;
+      return pathname.replace(/^\//, '') || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Fetch object from S3 using credentials (works for private buckets).
+   */
+  async getObject(key: string): Promise<{ body: Buffer; contentType?: string }> {
+    if (!this.client) throw new Error('S3 is not configured');
+
+    const keyNorm = key.replace(/^\//, '');
+    const res = await this.client.send(
+      new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: keyNorm,
+      }),
+    );
+
+    if (!res.Body) throw new Error(`S3 GetObject returned no body for key: ${keyNorm}`);
+
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of res.Body as any) {
+      chunks.push(chunk);
+    }
+    const body = Buffer.concat(chunks);
+    const contentType = res.ContentType ?? undefined;
+    return { body, contentType };
+  }
+
+  /**
+   * Fetch object by our bucket URL using credentials (for private buckets).
+   */
+  async getObjectByUrl(url: string): Promise<{ body: Buffer; contentType?: string }> {
+    const key = this.keyFromOurBucketUrl(url);
+    if (key == null) throw new Error(`URL is not our S3 object URL: ${url}`);
+    return this.getObject(key);
+  }
+
   /**
    * Upload a buffer to S3 and return the public URL.
    * @param key Object key (e.g. "uploads/abc.jpg", "uploads/generated/outfit.png")
@@ -54,10 +115,9 @@ export class S3Service {
   }
 
   /**
-   * Public URL for an object (bucket must allow GetObject for this to work).
+   * Public URL for an object (only works if bucket allows public GetObject).
    */
   getPublicUrl(key: string): string {
-    // Standard format: https://<bucket>.s3.<region>.amazonaws.com/<key>
     return `https://${this.bucket}.s3.${this.region}.amazonaws.com/${key.replace(/^\//, '')}`;
   }
 

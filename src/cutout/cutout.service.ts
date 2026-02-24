@@ -7,6 +7,7 @@ import sharp from 'sharp';
 import { v4 as uuidv4 } from 'uuid';
 import { getUploadsRoot } from '../utils/uploads-path';
 import { UploadService } from '../upload/upload.service';
+import { S3Service } from '../upload/s3.service';
 
 /**
  * Cutout (background removal) uses @imgly/background-removal-node, which is very large (~200MB+).
@@ -22,7 +23,10 @@ async function loadRemoveBackground(): Promise<(input: Buffer) => Promise<Blob>>
 export class CutoutService {
   private readonly logger = new Logger(CutoutService.name);
 
-  constructor(private uploadService: UploadService) {}
+  constructor(
+    private uploadService: UploadService,
+    private s3Service: S3Service,
+  ) {}
 
   /**
    * Generate a transparent PNG cutout for an uploaded image and store under uploads/cutouts (S3 or local).
@@ -95,6 +99,11 @@ export class CutoutService {
     }
 
     if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+      // Our S3 bucket: use credentialed GetObject (works with private bucket)
+      if (this.s3Service.isEnabled && this.s3Service.isOurBucketUrl(imageUrl)) {
+        const { body } = await this.s3Service.getObjectByUrl(imageUrl);
+        return body;
+      }
       return await this.downloadUrl(imageUrl);
     }
 
