@@ -1,8 +1,62 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { GenerateOutfitDto, SaveOutfitDto, GenerateWeekPlanDto } from './dto';
 import { PrismaService } from '../prisma/prisma.service';
+import { WeatherService } from '../weather/weather.service';
+import type { DayWeather } from '../weather/weather.service';
+import { SeasonTag } from '../wardrobe/enums';
 
 const WEEKDAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+const COLD_MAX_C = 12;
+const HOT_MIN_C = 24;
+
+type WardrobeItemRow = { id: string; category: string; seasonTags: string | null };
+function isTop(c: string): boolean {
+  const lower = c.toLowerCase();
+  return ['top', 'tops', 'outerwear', 'jacket', 'jackets', 'coat', 'coats', 'shirt', 'tshirt', 't-shirt', 'blouse', 'sweater', 'hoodie', 'tank', 'polo'].some((x) => lower.includes(x));
+}
+function isBottom(c: string): boolean {
+  const lower = c.toLowerCase();
+  return ['bottom', 'bottoms', 'pants', 'jeans', 'trousers', 'shorts', 'skirt', 'leggings'].some((x) => lower.includes(x));
+}
+function isShoes(c: string): boolean {
+  const lower = c.toLowerCase();
+  return ['shoes', 'shoe', 'sneakers', 'boots', 'sandals', 'heels', 'flats', 'loafers'].some((x) => lower.includes(x));
+}
+function isOuterwear(c: string): boolean {
+  const lower = c.toLowerCase();
+  return ['outerwear', 'jacket', 'jackets', 'coat', 'coats', 'blazer', 'cardigan', 'vest'].some((x) => lower.includes(x));
+}
+
+function parseSeasonTags(json: string | null): string[] {
+  if (!json) return [];
+  try {
+    const p = JSON.parse(json);
+    return Array.isArray(p) ? p.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Sort items: for cold day prefer winter/outerwear first; for hot day prefer summer first. */
+function sortByWeatherSuitability<T extends { seasonTags: string | null }>(items: T[], wantWarm: boolean): T[] {
+  return [...items].sort((a, b) => {
+    const aTags = parseSeasonTags(a.seasonTags);
+    const bTags = parseSeasonTags(b.seasonTags);
+    const aWinter = aTags.includes(SeasonTag.WINTER) ? 1 : 0;
+    const bWinter = bTags.includes(SeasonTag.WINTER) ? 1 : 0;
+    const aSummer = aTags.includes(SeasonTag.SUMMER) ? 1 : 0;
+    const bSummer = bTags.includes(SeasonTag.SUMMER) ? 1 : 0;
+    if (wantWarm) return bWinter - aWinter || aSummer - bSummer;
+    return bSummer - aSummer || aWinter - bWinter;
+  });
+}
+
+function pickOneByDayIndex<T>(items: T[], dayIndex: number): T | null {
+  if (items.length === 0) return null;
+  const i = dayIndex % items.length;
+  return items[i];
+}
 
 /** Normalize a date to Monday 00:00:00 UTC of that week for consistent DB storage and queries. */
 export function getWeekStartDate(date: Date): Date {
@@ -41,9 +95,19 @@ export interface OutfitItem {
   description: string;
 }
 
+interface WardrobeByCategory {
+  tops: WardrobeItemRow[];
+  bottoms: WardrobeItemRow[];
+  shoes: WardrobeItemRow[];
+  outerwear: WardrobeItemRow[];
+}
+
 @Injectable()
 export class OutfitService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private weatherService: WeatherService,
+  ) {}
   // TODO: Integrate with AI service for actual outfit generation
   async generateOutfit(dto: GenerateOutfitDto): Promise<OutfitSuggestion[]> {
     // Placeholder implementation
@@ -183,52 +247,161 @@ export class OutfitService {
   }
 
   /**
-   * Generate outfit suggestions for all 7 days of the selected week, create/update
-   * Outfit records with status 'planned', and return the week plan with suggestions per day.
+   * Pick one outfit (top + bottom + shoes, optionally outerwear) from wardrobe for a day
+   * based on weather and dayIndex for variety. Returns wardrobeItemIds and weather payload for save.
+   */
+  private pickOutfitForDay(
+    byCat: WardrobeByCategory,
+    dayWeather: DayWeather,
+    dayIndex: number,
+  ): { wardrobeItemIds: string[]; weather: { temperature: number; condition: string; locationName: string } } {
+    const needCold = dayWeather.maxTempC <= COLD_MAX_C;
+    const needHot = dayWeather.minTempC >= HOT_MIN_C;
+    const wantWarm = needCold;
+
+    const tops = sortByWeatherSuitability(byCat.tops, wantWarm);
+    const bottoms = sortByWeatherSuitability(byCat.bottoms, wantWarm);
+    const shoes = sortByWeatherSuitability(byCat.shoes, wantWarm);
+    const outerwear = sortByWeatherSuitability(byCat.outerwear, true);
+
+    const top = pickOneByDayIndex(tops, dayIndex);
+    const bottom = pickOneByDayIndex(bottoms, dayIndex + 1);
+    const shoesItem = pickOneByDayIndex(shoes, dayIndex + 2);
+    const coat = needCold ? pickOneByDayIndex(outerwear, dayIndex) : null;
+
+    const ids: string[] = [];
+    if (top) ids.push(top.id);
+    if (coat) ids.push(coat.id);
+    if (bottom) ids.push(bottom.id);
+    if (shoesItem) ids.push(shoesItem.id);
+
+    const avgTemp = Math.round((dayWeather.minTempC + dayWeather.maxTempC) / 2);
+    return {
+      wardrobeItemIds: ids,
+      weather: {
+        temperature: avgTemp,
+        condition: dayWeather.condition,
+        locationName: '',
+      },
+    };
+  }
+
+  /**
+   * Generate 7 different outfits from the user's wardrobe, one per day, using each day's
+   * weather. Maximum speed: one wardrobe query, one weather call, then parallel saves.
    */
   async generateWeekPlan(userId: string, dto: GenerateWeekPlanDto) {
     const weekStart = parseWeekStartDate(dto.weekStartDate);
     const weekStartDateStr = weekStart.toISOString().slice(0, 10);
 
-    const generateDto: GenerateOutfitDto = {
-      userImage: dto.userImage ?? '',
-      preferredStyle: dto.preferredStyle,
-      occasion: dto.occasion,
-      season: dto.season,
-      preferredColors: dto.preferredColors,
-      excludeColors: dto.excludeColors,
+    const [wardrobeItems, location] = await Promise.all([
+      this.prisma.wardrobeItem.findMany({
+        where: { userId },
+        select: { id: true, category: true, seasonTags: true },
+      }),
+      (async () => {
+        if (dto.latitude != null && dto.longitude != null) {
+          return { latitude: dto.latitude, longitude: dto.longitude, timezone: dto.timezone };
+        }
+        const settings = await this.prisma.notificationSettings.findUnique({
+          where: { userId },
+          select: { latitude: true, longitude: true, timezone: true },
+        });
+        if (settings?.latitude != null && settings?.longitude != null) {
+          return {
+            latitude: settings.latitude,
+            longitude: settings.longitude,
+            timezone: settings.timezone ?? dto.timezone,
+          };
+        }
+        return null;
+      })(),
+    ]);
+
+    const weekWeather: DayWeather[] = location
+      ? await this.weatherService.getWeekForecast({
+          latitude: location.latitude,
+          longitude: location.longitude,
+          timezone: location.timezone,
+          weekStartDate: weekStartDateStr,
+        })
+      : (() => {
+          const base = new Date(weekStart.getTime());
+          return Array.from({ length: 7 }, (_, dayIndex) => {
+            const d = new Date(base);
+            d.setUTCDate(d.getUTCDate() + dayIndex);
+            return {
+              dayIndex,
+              date: d.toISOString().slice(0, 10),
+              minTempC: 15,
+              maxTempC: 22,
+              condition: 'clear',
+            };
+          });
+        })();
+
+    const byCat: WardrobeByCategory = {
+      tops: wardrobeItems.filter((i) => isTop(i.category)),
+      bottoms: wardrobeItems.filter((i) => isBottom(i.category)),
+      shoes: wardrobeItems.filter((i) => isShoes(i.category)),
+      outerwear: wardrobeItems.filter((i) => isOuterwear(i.category)),
     };
 
-    const days = await Promise.all(
-      Array.from({ length: 7 }, async (_, dayIndex) => {
-        const [outfit, suggestions] = await Promise.all([
-          this.prisma.outfit.upsert({
-            where: {
-              userId_weekStartDate_dayIndex: {
-                userId,
-                weekStartDate: weekStart,
-                dayIndex,
-              },
-            },
-            create: {
+    const dayPlans = weekWeather.map((dw) => {
+      const picked = this.pickOutfitForDay(byCat, dw, dw.dayIndex);
+      return { dayIndex: dw.dayIndex, wardrobeItemIds: picked.wardrobeItemIds, weather: picked.weather };
+    });
+
+    const saved = await Promise.all(
+      dayPlans.map((plan) =>
+        this.prisma.outfit.upsert({
+          where: {
+            userId_weekStartDate_dayIndex: {
               userId,
               weekStartDate: weekStart,
-              dayIndex,
-              status: 'planned',
+              dayIndex: plan.dayIndex,
             },
-            update: { status: 'planned' },
-            include: { outfitItems: { include: { wardrobeItem: true } } },
-          }),
-          this.generateOutfit(generateDto),
-        ]);
-        return {
-          dayIndex,
-          weekday: WEEKDAY_NAMES[dayIndex],
-          outfit,
-          suggestions,
-        };
-      }),
+          },
+          create: {
+            userId,
+            weekStartDate: weekStart,
+            dayIndex: plan.dayIndex,
+            status: 'ready',
+            weather: JSON.stringify({
+              temperature: plan.weather.temperature,
+              condition: plan.weather.condition,
+              locationName: plan.weather.locationName,
+            }),
+            outfitItems:
+              plan.wardrobeItemIds.length > 0
+                ? { create: plan.wardrobeItemIds.map((wardrobeItemId) => ({ wardrobeItemId })) }
+                : undefined,
+          },
+          update: {
+            status: 'ready',
+            weather: JSON.stringify({
+              temperature: plan.weather.temperature,
+              condition: plan.weather.condition,
+              locationName: plan.weather.locationName,
+            }),
+            outfitItems: {
+              deleteMany: {},
+              ...(plan.wardrobeItemIds.length > 0
+                ? { create: plan.wardrobeItemIds.map((wardrobeItemId) => ({ wardrobeItemId })) }
+                : {}),
+            },
+          },
+          include: { outfitItems: { include: { wardrobeItem: true } } },
+        }),
+      ),
     );
+
+    const days = saved.map((outfit) => ({
+      dayIndex: outfit.dayIndex,
+      weekday: WEEKDAY_NAMES[outfit.dayIndex],
+      outfit,
+      weather: dayPlans[outfit.dayIndex]!.weather,
+    }));
 
     return {
       weekStartDate: weekStartDateStr,

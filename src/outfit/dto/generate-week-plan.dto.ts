@@ -1,13 +1,32 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsOptional, IsEnum, IsArray } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsArray, IsNumber } from 'class-validator';
+import { Type } from 'class-transformer';
 import { Occasion, Season } from './generate-outfit.dto';
 
-/** Body for POST /outfit/weekly/generate – generate outfit suggestions for all 7 days of the selected week. */
+/** Body for POST /outfit/weekly/generate – generate 7 outfits from wardrobe based on each day's weather. */
 export class GenerateWeekPlanDto {
   /** Monday of the week in ISO date (YYYY-MM-DD). Required. */
   @ApiProperty({ example: '2025-02-24', description: 'Monday of the selected week' })
   @IsString()
   weekStartDate!: string;
+
+  /** Optional. If omitted, location is taken from notification settings. */
+  @ApiPropertyOptional({ example: 40.1872 })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  latitude?: number;
+
+  @ApiPropertyOptional({ example: 44.5152 })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  longitude?: number;
+
+  @ApiPropertyOptional({ example: 'Europe/Yerevan' })
+  @IsOptional()
+  @IsString()
+  timezone?: string;
 
   @ApiPropertyOptional({
     description: 'Base64 encoded image of the user',
