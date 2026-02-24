@@ -95,6 +95,32 @@ export class ConfigService {
     return this.env.S3_SECRET_KEY;
   }
 
+  /** True when all S3 vars are set and not placeholders (use S3 for uploads, e.g. on Vercel). */
+  get isS3Configured(): boolean {
+    const { S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY } = this.env;
+    const placeholder = /your-(access|secret)-key-here/i;
+    return !!(
+      S3_ENDPOINT &&
+      S3_BUCKET &&
+      S3_ACCESS_KEY &&
+      S3_SECRET_KEY &&
+      !placeholder.test(S3_ACCESS_KEY) &&
+      !placeholder.test(S3_SECRET_KEY)
+    );
+  }
+
+  /** Parse AWS region from S3_ENDPOINT (e.g. https://s3.eu-north-1.amazonaws.com -> eu-north-1). */
+  get s3Region(): string {
+    const endpoint = this.env.S3_ENDPOINT || 'https://s3.amazonaws.com';
+    try {
+      const host = new URL(endpoint).hostname;
+      const match = host.match(/^s3[.-]?([a-z0-9-]+)\.amazonaws\.com$/i) || host.match(/^s3\.([a-z0-9-]+)\.amazonaws\.com$/i);
+      return match ? match[1] : 'us-east-1';
+    } catch {
+      return 'us-east-1';
+    }
+  }
+
   get openAiApiKey(): Env['OPENAI_API_KEY'] {
     return this.env.OPENAI_API_KEY;
   }

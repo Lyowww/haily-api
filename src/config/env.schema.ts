@@ -46,11 +46,11 @@ export const envSchema = z.object({
   // Redis
   REDIS_URL: z.string().url().min(1, 'REDIS_URL is required'),
 
-  // AWS S3
-  S3_ENDPOINT: z.string().url().min(1, 'S3_ENDPOINT is required'),
-  S3_BUCKET: z.string().min(1, 'S3_BUCKET is required'),
-  S3_ACCESS_KEY: z.string().min(1, 'S3_ACCESS_KEY is required'),
-  S3_SECRET_KEY: z.string().min(1, 'S3_SECRET_KEY is required'),
+  // AWS S3 (optional for local dev; set all four on Vercel for persistent uploads)
+  S3_ENDPOINT: z.string().url().optional(),
+  S3_BUCKET: z.string().optional(),
+  S3_ACCESS_KEY: z.string().optional(),
+  S3_SECRET_KEY: z.string().optional(),
 
   // OpenAI
   OPENAI_API_KEY: z.string().min(1, 'OPENAI_API_KEY is required'),

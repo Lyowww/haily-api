@@ -8,7 +8,8 @@ import * as https from 'https';
 import * as http from 'http';
 import sharp from 'sharp';
 import { CutoutService } from '../cutout/cutout.service';
-import { getUploadsRoot, getUploadsSubdir, ensureUploadsDir } from '../utils/uploads-path';
+import { UploadService } from '../upload/upload.service';
+import { getUploadsRoot } from '../utils/uploads-path';
 
 interface OutfitGenerationRequest {
   userPhotoUrl: string;
@@ -40,9 +41,12 @@ export interface WardrobeAnalysisResult {
 @Injectable()
 export class AIService {
   private openai: OpenAI;
-  private readonly cutoutService = new CutoutService();
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService,
+    private cutoutService: CutoutService,
+    private uploadService: UploadService,
+  ) {
     this.openai = new OpenAI({
       apiKey: this.configService.openAiApiKey,
     });
@@ -92,13 +96,24 @@ export class AIService {
   private resolveLocalUploadsPath(imageUrl: string): string | null {
     if (!imageUrl || typeof imageUrl !== 'string') return null;
 
+    // S3 or other remote URL — must download, not read from disk
+    try {
+      const parsed = new URL(imageUrl);
+      if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+        const host = parsed.hostname || '';
+        if (host.includes('s3.') && host.includes('amazonaws.com')) return null;
+        if (host !== 'localhost' && host !== '127.0.0.1') return null;
+      }
+    } catch {
+      // not a URL
+    }
+
     // Direct relative path stored in DB, e.g. "/uploads/abc.png"
     if (imageUrl.startsWith('/uploads/')) {
       return imageUrl;
     }
 
-    // Absolute URL from any host/IP that still points to local uploads.
-    // This prevents failures when records contain stale LAN IPs.
+    // Absolute URL from localhost that still points to local uploads
     try {
       const parsed = new URL(imageUrl);
       if (parsed.pathname.startsWith('/uploads/')) {
@@ -267,31 +282,16 @@ ${svgRects}
   }
 
   /**
-   * Download image from URL and save to local storage
+   * Download image from URL and save to storage (S3 or local).
    */
   private async downloadAndSaveImage(imageUrl: string, filename: string): Promise<string> {
-    const uploadsDir = getUploadsSubdir('generated');
-    ensureUploadsDir(uploadsDir);
-
-    const filepath = path.join(uploadsDir, filename);
-    const file = fs.createWriteStream(filepath);
-
-    return new Promise((resolve, reject) => {
-      const protocol = imageUrl.startsWith('https') ? https : http;
-
-      protocol.get(imageUrl, (response) => {
-        response.pipe(file);
-
-        file.on('finish', () => {
-          file.close();
-          // Return the URL path that can be accessed via the API
-          resolve(`/uploads/generated/${filename}`);
-        });
-      }).on('error', (err) => {
-        fs.unlink(filepath, () => { }); // Delete the file if error
-        reject(err);
-      });
-    });
+    const { buffer } = await this.readImageBuffer(imageUrl);
+    const { url } = await this.uploadService.uploadBuffer(
+      buffer,
+      `generated/${filename}`,
+      'image/png',
+    );
+    return url;
   }
 
   /**
@@ -477,21 +477,19 @@ ${styleContext ? `STYLE CONTEXT (FOLLOW AS A SECONDARY CONSTRAINT):\n${styleCont
       let localPath: string = '';
 
       if (imageB64) {
-        // Save base64 image directly to disk
-        console.log('Image received as base64, saving to disk...');
-        const uploadsDir = getUploadsSubdir('generated');
-        ensureUploadsDir(uploadsDir);
-        const filepath = path.join(uploadsDir, filename);
+        console.log('Image received as base64, saving to storage...');
         const buffer = Buffer.from(imageB64, 'base64');
-        fs.writeFileSync(filepath, buffer);
-
-        localPath = `/uploads/generated/${filename}`;
-        console.log('Base64 image saved locally at:', localPath);
+        const { url } = await this.uploadService.uploadBuffer(
+          buffer,
+          `generated/${filename}`,
+          'image/png',
+        );
+        localPath = url;
+        console.log('Image saved at:', localPath);
       } else if (imageUrl) {
-        // Download from URL
         console.log('Image generated, downloading from URL...');
         localPath = await this.downloadAndSaveImage(imageUrl, filename);
-        console.log('Image saved locally at:', localPath);
+        console.log('Image saved at:', localPath);
       }
 
       // Prefer a transparent PNG cutout so the output is "standing user only".
@@ -507,8 +505,10 @@ ${styleContext ? `STYLE CONTEXT (FOLLOW AS A SECONDARY CONSTRAINT):\n${styleCont
         console.warn('Cutout post-process failed, using original generated PNG.');
       }
 
-      // Ensure we return full localhost URLs for frontend
-      const fullLocalPath = finalPath.startsWith('http') ? finalPath : `http://localhost:3000${finalPath}`;
+      // Ensure we return a full URL for frontend (S3 URL or localhost)
+      const fullLocalPath = finalPath.startsWith('http')
+        ? finalPath
+        : `http://localhost:${this.configService.port ?? 3000}${finalPath}`;
 
       console.log('✅ Generated outfit image at:', fullLocalPath);
 
