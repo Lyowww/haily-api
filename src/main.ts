@@ -65,9 +65,38 @@ async function createApp(): Promise<INestApplication> {
     .addBearerAuth()
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
-  // Use full path 'api/docs' so Swagger routes match when request path is /api/docs (Vercel + direct Express)
+
+  // Serve Swagger UI HTML that loads CSS/JS from CDN so static assets work on Vercel (no 404/MIME issues).
+  // This route is registered first so it overrides the default Swagger UI page; init script and JSON are still served by Swagger below.
+  const SWAGGER_UI_CDN = 'https://unpkg.com/swagger-ui-dist@5.11.0';
+  const swaggerHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Swagger UI – AI Outfit API</title>
+  <link rel="stylesheet" type="text/css" href="${SWAGGER_UI_CDN}/swagger-ui.css">
+  <link rel="icon" type="image/png" href="${SWAGGER_UI_CDN}/favicon-32x32.png" sizes="32x32">
+  <link rel="icon" type="image/png" href="${SWAGGER_UI_CDN}/favicon-16x16.png" sizes="16x16">
+  <style>html{box-sizing:border-box;overflow:auto}*,*:before,*:after{box-sizing:inherit}body{margin:0;background:#fafafa}</style>
+</head>
+<body>
+<div id="swagger-ui"></div>
+<script src="${SWAGGER_UI_CDN}/swagger-ui-bundle.js"></script>
+<script src="${SWAGGER_UI_CDN}/swagger-ui-standalone-preset.js"></script>
+<script src="/api/docs/swagger-ui-init.js"></script>
+</body>
+</html>`;
+
+  const httpAdapter = app.getHttpAdapter();
+  const expressApp = httpAdapter.getInstance();
+  expressApp.get('/api/docs', (_req: any, res: any) => {
+    res.type('text/html');
+    res.send(swaggerHtml);
+  });
+
+  // Swagger still serves /api/docs/swagger-ui-init.js and /api/docs-json; static assets are not used (we use CDN above).
   SwaggerModule.setup('api/docs', app, document, {
-    useGlobalPrefix: false, // we already included 'api' in the path above
+    useGlobalPrefix: false,
     jsonDocumentUrl: '/api/docs-json',
     swaggerOptions: {
       persistAuthorization: true,
