@@ -27,7 +27,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (!user) {
       throw new UnauthorizedException();
     }
-    // Return user with userId field for easy access in controllers
+    // Return user with userId for controllers that expect req.user.userId
     return { ...user, userId: user.id };
   }
 }

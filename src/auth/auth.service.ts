@@ -23,6 +23,33 @@ function generateSixDigitCode(): string {
   return String(randomInt(100000, 999999));
 }
 
+/** Shape user for API responses: include emailVerified derived from emailVerifiedAt */
+function toUserResponse(user: {
+  id: string;
+  email: string;
+  avatarBaseImageUrl: string | null;
+  onboardingStatus: string;
+  sex: string | null;
+  age: number | null;
+  heightCm: number | null;
+  createdAt: Date;
+  updatedAt: Date;
+  emailVerifiedAt?: Date | null;
+}) {
+  return {
+    id: user.id,
+    email: user.email,
+    avatarBaseImageUrl: user.avatarBaseImageUrl,
+    onboardingStatus: user.onboardingStatus,
+    sex: user.sex,
+    age: user.age,
+    heightCm: user.heightCm,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+    emailVerified: !!user.emailVerifiedAt,
+  };
+}
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -70,6 +97,7 @@ export class AuthService {
         heightCm: true,
         createdAt: true,
         updatedAt: true,
+        emailVerifiedAt: true,
       },
     });
 
@@ -80,7 +108,7 @@ export class AuthService {
     const accessToken = this.generateToken(user.id, user.email);
 
     return {
-      user,
+      user: toUserResponse(user),
       accessToken,
     };
   }
@@ -215,17 +243,7 @@ export class AuthService {
     const accessToken = this.generateToken(user.id, user.email);
 
     return {
-      user: {
-        id: user.id,
-        email: user.email,
-        avatarBaseImageUrl: user.avatarBaseImageUrl,
-        onboardingStatus: user.onboardingStatus,
-        sex: user.sex,
-        age: user.age,
-        heightCm: user.heightCm,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt,
-      },
+      user: toUserResponse(user),
       accessToken,
     };
   }
@@ -243,6 +261,7 @@ export class AuthService {
         heightCm: true,
         createdAt: true,
         updatedAt: true,
+        emailVerifiedAt: true,
       },
     });
 
@@ -250,7 +269,7 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
-    return user;
+    return toUserResponse(user);
   }
 
   async updateProfilePhoto(userId: string, photoUrl: string) {
@@ -267,10 +286,11 @@ export class AuthService {
         heightCm: true,
         createdAt: true,
         updatedAt: true,
+        emailVerifiedAt: true,
       },
     });
 
-    return user;
+    return toUserResponse(user);
   }
 
   async updateProfile(
@@ -294,10 +314,11 @@ export class AuthService {
         heightCm: true,
         createdAt: true,
         updatedAt: true,
+        emailVerifiedAt: true,
       },
     });
 
-    return user;
+    return toUserResponse(user);
   }
 
   async changePassword(userId: string, currentPassword: string, newPassword: string) {
