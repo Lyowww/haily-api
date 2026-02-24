@@ -373,89 +373,39 @@ ${svgRects}
       const shoesIndex = shoesItem ? imageIndex++ : -1;
 
       const styleContext = typeof request.stylePrompt === 'string' ? request.stylePrompt.trim() : '';
-      const prompt = `MODE: Constrained inpainting.
-This is NOT generation.
-This is NOT recreation.
-This is NOT reinterpretation.
+      const prompt = `MODE: Constrained inpainting. Use the user's face from the first image and produce a full-body standing photo of the same person wearing the given clothes.
+
+CRITICAL — FACE AND IDENTITY:
+- image[${personIndex}] (person.png) is the user's profile/portrait photo. It contains THEIR REAL FACE.
+- You MUST keep this face exactly as in the image: same eyes, nose, lips, jawline, skin tone, hair. Zero alteration.
+- Do NOT generate a new face. Do NOT beautify, smooth, or change the face. Do NOT re-render the head.
+- The output must be recognizably the SAME PERSON as in image[${personIndex}].
+
+REQUIRED OUTPUT:
+- One full-body standing photograph: the person standing from head to toe, neutral standing pose.
+- Same face and identity as in image[${personIndex}], with the body dressed using the garment reference images below.
+- Framing: full body visible (head to feet), standing, as in a simple portrait photo. Do not crop the body.
 
 SOURCE OF TRUTH:
-image[${personIndex}] (person.png) is the immutable base image.
+- Outside the editable (masked) region: keep pixels identical to image[${personIndex}]. No redraw, no enhance, no restyle.
+- Face, head, hair, skin, neck must remain pixel-identical to the source. Do not modify facial features or proportions.
 
-HARD CONSTRAINT:
-All pixels outside the transparent clothing mask MUST remain 100% identical to image[${personIndex}].
-Zero modification allowed outside mask.
-Do not redraw.
-Do not regenerate.
-Do not enhance.
-Do not beautify.
-Do not restyle.
-
-IDENTITY FREEZE (NON-NEGOTIABLE):
-The following must remain pixel-identical to the source image:
-- Face (all facial features)
-- Head shape
-- Hair (shape, volume, color)
-- Skin tone and texture
-- Neck
-- Hands
-- Arms
-- Legs
-- Body proportions
-- Silhouette outline
-
-Do NOT modify:
-- Jawline
-- Cheeks
-- Nose
-- Eyes
-- Lips
-- Body width
-- Shoulder width
-- Waist width
-- Hip width
-- Limb thickness
-- Height proportions
-
-NO GEOMETRY CHANGES:
-Do not change pose geometry.
-Do not re-pose skeleton.
-Do not re-estimate anatomy.
-The body structure must remain identical to source.
-
-ONLY PERMITTED OPERATION:
-Replace pixels inside the clothing mask region with the exact garments from reference images:
-
+ONLY PERMITTED OPERATION INSIDE THE MASK:
+Replace the clothing area with the exact garments from these reference images:
 ${topIndex >= 0 ? `- image[${topIndex}] (top.png)` : ''}
 ${bottomIndex >= 0 ? `- image[${bottomIndex}] (bottom.png)` : ''}
 ${shoesIndex >= 0 ? `- image[${shoesIndex}] (shoes.png)` : ''}
-
-GARMENT RULES:
-- Use exact garment appearance.
-- Preserve color exactly.
-- Preserve material and texture exactly.
-- Preserve cut and length exactly.
-- Do not redesign or reinterpret.
-- Do not stylize.
+Use the exact appearance, color, material, and cut of each garment. Do not redesign or stylize.
 
 PROHIBITED:
-- Do NOT generate a new person.
-- Do NOT adjust lighting on skin.
-- Do NOT smooth skin.
-- Do NOT slim body.
-- Do NOT reshape face.
-- Do NOT re-render head.
-- Do NOT adjust camera framing.
-- Do NOT zoom.
-- Do NOT crop.
+- Do NOT change or replace the user's face.
+- Do NOT generate a different person.
+- Do NOT smooth skin, slim body, or reshape face.
+- Do NOT change camera framing, zoom, or crop away the full body.
 
-OUTPUT:
-- Same person
-- Same proportions
-- Same framing
-- Only clothing replaced inside mask
-- PNG output
+OUTPUT: Same person (same face as image[${personIndex}]), full-body standing pose, wearing the specified garments. PNG.
 
-${styleContext ? `STYLE CONTEXT (FOLLOW AS A SECONDARY CONSTRAINT):\n${styleContext}\nOnly apply style choices that are compatible with exact garment fidelity and identity freeze rules.` : ''}
+${styleContext ? `STYLE CONTEXT (secondary): ${styleContext}` : ''}
 `.trim();
 
       console.log('📤 Calling OpenAI images.edit with gpt-image-1...');

@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsString, IsNumber, IsOptional, IsArray, IsObject, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -36,5 +36,17 @@ export class SaveOutfitDto {
   @IsArray()
   @IsOptional()
   wardrobeItemIds?: string[];
+
+  /** Week start (Monday) in ISO date string. If omitted, uses current week. */
+  @ApiPropertyOptional({ example: '2025-02-24' })
+  @IsOptional()
+  @IsString()
+  weekStartDate?: string;
+
+  /** Day in week: 0 = Monday, 6 = Sunday. If omitted, uses today. */
+  @ApiPropertyOptional({ example: 0, minimum: 0, maximum: 6 })
+  @IsOptional()
+  @IsNumber()
+  dayIndex?: number;
 }
 

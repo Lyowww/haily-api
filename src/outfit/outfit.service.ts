@@ -1,6 +1,30 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { GenerateOutfitDto, SaveOutfitDto } from './dto';
 import { PrismaService } from '../prisma/prisma.service';
+
+const WEEKDAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+/** Normalize a date to Monday 00:00:00 UTC of that week for consistent DB storage and queries. */
+export function getWeekStartDate(date: Date): Date {
+  const d = new Date(date);
+  const utc = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const day = utc.getUTCDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  utc.setUTCDate(utc.getUTCDate() + diff);
+  return utc;
+}
+
+/** Parse ISO date string (YYYY-MM-DD) to Date. */
+function parseWeekStartDate(weekStartDate: string): Date {
+  const d = new Date(weekStartDate + 'T00:00:00.000Z');
+  if (Number.isNaN(d.getTime())) {
+    throw new BadRequestException('Invalid weekStartDate. Use YYYY-MM-DD (Monday of the week).');
+  }
+  const day = d.getUTCDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setUTCDate(d.getUTCDate() + diff);
+  return d;
+}
 
 export interface OutfitSuggestion {
   id: string;
@@ -76,11 +100,19 @@ export class OutfitService {
 
   async saveOutfit(userId: string, saveOutfitDto: SaveOutfitDto) {
     const now = new Date();
-    const dayIndexMonday0 = (now.getDay() + 6) % 7; // JS: 0=Sun ... -> 0=Mon
-    const weekStartDate = new Date(now);
-    weekStartDate.setHours(0, 0, 0, 0);
-    // Move back to Monday
-    weekStartDate.setDate(weekStartDate.getDate() - dayIndexMonday0);
+    let weekStartDate: Date;
+    let dayIndexMonday0: number;
+
+    if (saveOutfitDto.weekStartDate != null) {
+      weekStartDate = parseWeekStartDate(saveOutfitDto.weekStartDate);
+      dayIndexMonday0 =
+        saveOutfitDto.dayIndex != null
+          ? Math.max(0, Math.min(6, Math.floor(saveOutfitDto.dayIndex)))
+          : (now.getDay() + 6) % 7;
+    } else {
+      weekStartDate = getWeekStartDate(now);
+      dayIndexMonday0 = (now.getDay() + 6) % 7;
+    }
 
     // Prepare weather JSON
     const weatherData = saveOutfitDto.weather
@@ -148,6 +180,55 @@ export class OutfitService {
     });
 
     return { outfits };
+  }
+
+  /**
+   * Get the weekly outfit plan for a user. Returns all 7 days (0=Monday .. 6=Sunday);
+   * each day has outfit data if set, or null.
+   */
+  async getWeekPlan(userId: string, weekStartDateInput?: string) {
+    const weekStart =
+      weekStartDateInput != null
+        ? parseWeekStartDate(weekStartDateInput)
+        : getWeekStartDate(new Date());
+
+    const outfits = await this.prisma.outfit.findMany({
+      where: { userId, weekStartDate: weekStart },
+      include: { outfitItems: { include: { wardrobeItem: true } } },
+      orderBy: { dayIndex: 'asc' },
+    });
+
+    const byDay = new Map(outfits.map((o) => [o.dayIndex, o]));
+    const days = Array.from({ length: 7 }, (_, dayIndex) => ({
+      dayIndex,
+      weekday: WEEKDAY_NAMES[dayIndex],
+      outfit: byDay.get(dayIndex) ?? null,
+    }));
+
+    return {
+      weekStartDate: weekStart.toISOString().slice(0, 10),
+      days,
+    };
+  }
+
+  /**
+   * Delete outfit for a specific day in the weekly plan.
+   */
+  async deleteOutfitForDay(userId: string, weekStartDateInput: string, dayIndex: number) {
+    if (dayIndex < 0 || dayIndex > 6) {
+      throw new BadRequestException('dayIndex must be 0 (Monday) to 6 (Sunday).');
+    }
+    const weekStart = parseWeekStartDate(weekStartDateInput);
+
+    const deleted = await this.prisma.outfit.deleteMany({
+      where: {
+        userId,
+        weekStartDate: weekStart,
+        dayIndex,
+      },
+    });
+
+    return { deleted: deleted.count > 0 };
   }
 }
 
