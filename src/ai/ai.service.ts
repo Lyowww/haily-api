@@ -530,6 +530,10 @@ ${styleContext ? `STYLE CONTEXT (FOLLOW AS A SECONDARY CONSTRAINT):\n${styleCont
       };
     } catch (error: any) {
       if (error?.code === 'invalid_api_key' || error?.status === 401) {
+        console.error(
+          '[OpenAI] 401 / invalid_api_key — check OPENAI_API_KEY in Vercel env vars and at https://platform.openai.com/api-keys',
+          error?.message ?? error,
+        );
         throw new UnauthorizedException(
           'OpenAI API key is invalid or expired. Update OPENAI_API_KEY in Vercel (Settings → Environment Variables) or in .env. Get a key at https://platform.openai.com/api-keys',
         );
