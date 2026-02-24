@@ -65,8 +65,8 @@ async function createApp(): Promise<INestApplication> {
     .addBearerAuth()
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('api/docs', app, document, {
-    jsonDocumentUrl: '/api/docs-json',
+  // Use 'docs' so with global prefix 'api' the UI is at /api/docs and assets at /api/docs/* load correctly
+  SwaggerModule.setup('docs', app, document, {
     swaggerOptions: {
       persistAuthorization: true,
     },
