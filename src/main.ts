@@ -11,7 +11,12 @@ async function createApp(): Promise<INestApplication> {
 
   const configService = app.get(ConfigService);
 
-  app.use(helmet());
+  app.use(
+    helmet({
+      contentSecurityPolicy: process.env.NODE_ENV === 'production',
+      crossOriginEmbedderPolicy: false,
+    }),
+  );
 
   const allowedOrigins = configService.corsOrigins;
   app.enableCors({
@@ -60,7 +65,12 @@ async function createApp(): Promise<INestApplication> {
     .addBearerAuth()
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('api/docs', app, document);
+  SwaggerModule.setup('api/docs', app, document, {
+    jsonDocumentUrl: '/api/docs-json',
+    swaggerOptions: {
+      persistAuthorization: true,
+    },
+  });
 
   return app;
 }

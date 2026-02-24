@@ -140,5 +140,28 @@ export class ConfigService {
   get isTest(): boolean {
     return this.env.NODE_ENV === 'test';
   }
+
+  /** Mail (optional). When set, emails are sent for verification, forgot password, etc. */
+  get mailHost(): Env['MAIL_HOST'] {
+    return this.env.MAIL_HOST;
+  }
+  get mailPort(): Env['MAIL_PORT'] {
+    return this.env.MAIL_PORT;
+  }
+  get mailSecure(): boolean {
+    return !!this.env.MAIL_SECURE;
+  }
+  get mailUser(): Env['MAIL_USER'] {
+    return this.env.MAIL_USER;
+  }
+  get mailPassword(): Env['MAIL_PASSWORD'] {
+    return this.env.MAIL_PASSWORD;
+  }
+  get mailFrom(): Env['MAIL_FROM'] {
+    return this.env.MAIL_FROM;
+  }
+  get isMailConfigured(): boolean {
+    return !!(this.env.MAIL_HOST && this.env.MAIL_PORT);
+  }
 }
 

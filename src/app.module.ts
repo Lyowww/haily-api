@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from './config';
 import { PrismaModule } from './prisma';
+import { EmailModule } from './email';
 import { AuthModule } from './auth';
 import { UploadModule } from './upload';
 import { AIModule } from './ai';
@@ -17,6 +18,7 @@ import { HelpCenterModule } from './help-center';
   imports: [
     ConfigModule,
     PrismaModule,
+    EmailModule,
     AuthModule,
     UploadModule,
     OutfitModule,

@@ -6,16 +6,29 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
+import { randomInt } from 'crypto';
 import { PrismaService } from '../prisma';
-import { RegisterDto, LoginDto } from './dto';
-// import { ConfigService } from '../config';
+import { EmailService } from '../email';
+import {
+  RegisterDto,
+  LoginDto,
+  ForgotPasswordDto,
+  ResetPasswordDto,
+  VerifyEmailDto,
+} from './dto';
+
+const CODE_EXPIRY_MINUTES = 15;
+
+function generateSixDigitCode(): string {
+  return String(randomInt(100000, 999999));
+}
 
 @Injectable()
 export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
-    // private configService: ConfigService,
+    private emailService: EmailService,
   ) {}
 
   async register(registerDto: RegisterDto) {
@@ -34,12 +47,18 @@ export class AuthService {
     const saltRounds = 10;
     const passwordHash = await bcrypt.hash(password, saltRounds);
 
+    // 6-digit verification code for email (stored plain for comparison; expires in 15 min)
+    const emailVerificationCode = generateSixDigitCode();
+    const emailVerificationExpires = new Date(Date.now() + CODE_EXPIRY_MINUTES * 60 * 1000);
+
     // Create user
     const user = await this.prisma.user.create({
       data: {
         email,
         passwordHash,
         onboardingStatus: 'pending',
+        emailVerificationCode,
+        emailVerificationExpires,
       },
       select: {
         id: true,
@@ -54,6 +73,9 @@ export class AuthService {
       },
     });
 
+    // Send no-reply welcome email with verification code
+    await this.emailService.sendWelcomeNoReply(email, emailVerificationCode);
+
     // Generate JWT token
     const accessToken = this.generateToken(user.id, user.email);
 
@@ -61,6 +83,106 @@ export class AuthService {
       user,
       accessToken,
     };
+  }
+
+  async verifyEmail(dto: VerifyEmailDto) {
+    const { email, code } = dto;
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        emailVerificationCode: true,
+        emailVerificationExpires: true,
+        emailVerifiedAt: true,
+      },
+    });
+    if (!user) {
+      throw new BadRequestException('Invalid email or code');
+    }
+    if (user.emailVerifiedAt) {
+      return { message: 'Email already verified' };
+    }
+    if (!user.emailVerificationCode || !user.emailVerificationExpires) {
+      throw new BadRequestException('No verification pending. Request a new code.');
+    }
+    if (new Date() > user.emailVerificationExpires) {
+      throw new BadRequestException('Verification code expired. Request a new code.');
+    }
+    if (user.emailVerificationCode !== code) {
+      throw new BadRequestException('Invalid email or code');
+    }
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        emailVerificationCode: null,
+        emailVerificationExpires: null,
+        emailVerifiedAt: new Date(),
+      },
+    });
+    return { message: 'Email verified successfully' };
+  }
+
+  async forgotPassword(dto: ForgotPasswordDto) {
+    const { email } = dto;
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      select: { id: true },
+    });
+    // Always return success to avoid leaking whether email exists
+    const code = generateSixDigitCode();
+    const expires = new Date(Date.now() + CODE_EXPIRY_MINUTES * 60 * 1000);
+    if (user) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          passwordResetToken: code,
+          passwordResetExpires: expires,
+        },
+      });
+      await this.emailService.sendPasswordResetCode(email, code);
+    }
+    return {
+      message:
+        'If an account exists for this email, you will receive a password reset code shortly.',
+    };
+  }
+
+  async resetPassword(dto: ResetPasswordDto) {
+    const { email, code, newPassword } = dto;
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        passwordResetToken: true,
+        passwordResetExpires: true,
+      },
+    });
+    if (!user) {
+      throw new BadRequestException('Invalid email or code');
+    }
+    if (!user.passwordResetToken || !user.passwordResetExpires) {
+      throw new BadRequestException('No password reset requested. Use forgot password first.');
+    }
+    if (new Date() > user.passwordResetExpires) {
+      throw new BadRequestException('Reset code expired. Request a new code.');
+    }
+    if (user.passwordResetToken !== code) {
+      throw new BadRequestException('Invalid email or code');
+    }
+    if (newPassword.length < 8 || newPassword.length > 128) {
+      throw new BadRequestException('Password must be 8–128 characters');
+    }
+    const saltRounds = 10;
+    const passwordHash = await bcrypt.hash(newPassword, saltRounds);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash,
+        passwordResetToken: null,
+        passwordResetExpires: null,
+      },
+    });
+    return { message: 'Password reset successfully' };
   }
 
   async login(loginDto: LoginDto) {

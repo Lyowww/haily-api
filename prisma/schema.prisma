@@ -19,6 +19,13 @@ model User {
   sex                 String?  // male, female
   age                 Int?
   heightCm            Int?     @map("height_cm")
+  // Email verification (e.g. 6-digit code sent on register)
+  emailVerificationCode   String?   @map("email_verification_code")
+  emailVerificationExpires DateTime? @map("email_verification_expires")
+  emailVerifiedAt        DateTime?  @map("email_verified_at")
+  // Password reset (token/code sent for forgot password)
+  passwordResetToken     String?   @map("password_reset_token")
+  passwordResetExpires   DateTime? @map("password_reset_expires")
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
