@@ -136,7 +136,7 @@ export class WardrobeRecognitionService {
       ? `User notes: ${userNotes}`
       : '';
 
-    return `You are a fashion classification AI. Analyze this clothing/accessory image and return ONLY a valid JSON object with the following structure:
+    return `You are a fashion classification AI. Analyze this clothing / accessory image and return ONLY a valid JSON object with the following structure:
 
 {
   "category": "one of: top, bottom, outerwear, shoes, bag, hat, accessory",
