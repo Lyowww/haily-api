@@ -1,5 +1,5 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
-import { GenerateOutfitDto, SaveOutfitDto } from './dto';
+import { GenerateOutfitDto, SaveOutfitDto, GenerateWeekPlanDto } from './dto';
 import { PrismaService } from '../prisma/prisma.service';
 
 const WEEKDAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -180,6 +180,60 @@ export class OutfitService {
     });
 
     return { outfits };
+  }
+
+  /**
+   * Generate outfit suggestions for all 7 days of the selected week, create/update
+   * Outfit records with status 'planned', and return the week plan with suggestions per day.
+   */
+  async generateWeekPlan(userId: string, dto: GenerateWeekPlanDto) {
+    const weekStart = parseWeekStartDate(dto.weekStartDate);
+    const weekStartDateStr = weekStart.toISOString().slice(0, 10);
+
+    const generateDto: GenerateOutfitDto = {
+      userImage: dto.userImage ?? '',
+      preferredStyle: dto.preferredStyle,
+      occasion: dto.occasion,
+      season: dto.season,
+      preferredColors: dto.preferredColors,
+      excludeColors: dto.excludeColors,
+    };
+
+    const days = await Promise.all(
+      Array.from({ length: 7 }, async (_, dayIndex) => {
+        const [outfit, suggestions] = await Promise.all([
+          this.prisma.outfit.upsert({
+            where: {
+              userId_weekStartDate_dayIndex: {
+                userId,
+                weekStartDate: weekStart,
+                dayIndex,
+              },
+            },
+            create: {
+              userId,
+              weekStartDate: weekStart,
+              dayIndex,
+              status: 'planned',
+            },
+            update: { status: 'planned' },
+            include: { outfitItems: { include: { wardrobeItem: true } } },
+          }),
+          this.generateOutfit(generateDto),
+        ]);
+        return {
+          dayIndex,
+          weekday: WEEKDAY_NAMES[dayIndex],
+          outfit,
+          suggestions,
+        };
+      }),
+    );
+
+    return {
+      weekStartDate: weekStartDateStr,
+      days,
+    };
   }
 
   /**

@@ -2,7 +2,7 @@ import { Controller, Post, Body, Get, Param, Query, Delete, Put, UseGuards, Requ
 import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
 import { ParseIntPipe } from '@nestjs/common/pipes';
 import { OutfitService } from './outfit.service';
-import { GenerateOutfitDto, SaveOutfitDto, GetWeekPlanQueryDto } from './dto';
+import { GenerateOutfitDto, SaveOutfitDto, GetWeekPlanQueryDto, GenerateWeekPlanDto } from './dto';
 import { JwtAuthGuard } from '../auth';
 
 @ApiTags('Outfit')
@@ -60,6 +60,15 @@ export class OutfitController {
   @ApiResponse({ status: 200, description: 'Returns week plan with days 0–6 (Monday–Sunday)' })
   async getWeekPlan(@Request() req: any, @Query() query: GetWeekPlanQueryDto) {
     return this.outfitService.getWeekPlan(req.user.userId, query.weekStartDate);
+  }
+
+  @Post('weekly/generate')
+  @ApiOperation({ summary: 'Generate full week plan for the selected week (all 7 days)' })
+  @ApiBody({ type: GenerateWeekPlanDto })
+  @ApiResponse({ status: 201, description: 'Week plan generated with suggestions per day' })
+  @ApiResponse({ status: 400, description: 'Invalid weekStartDate' })
+  async generateWeekPlan(@Request() req: any, @Body() body: GenerateWeekPlanDto) {
+    return this.outfitService.generateWeekPlan(req.user.userId, body);
   }
 
   @Put('weekly/:dayIndex')
