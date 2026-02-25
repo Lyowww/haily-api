@@ -2,7 +2,7 @@ import { Controller, Post, Body, Get, Param, Query, Delete, Put, UseGuards, Requ
 import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
 import { ParseIntPipe } from '@nestjs/common/pipes';
 import { OutfitService } from './outfit.service';
-import { GenerateOutfitDto, SaveOutfitDto, GetWeekPlanQueryDto, GenerateWeekPlanDto } from './dto';
+import { GenerateOutfitDto, SaveOutfitDto, GetWeekPlanQueryDto, GenerateWeekPlanDto, RegenerateDayDto } from './dto';
 import { JwtAuthGuard } from '../auth';
 
 @ApiTags('Outfit')
@@ -76,6 +76,32 @@ export class OutfitController {
   @ApiResponse({ status: 400, description: 'Invalid weekStartDate or missing profile image' })
   async generateWeekPlan(@Request() req: any, @Body() body: GenerateWeekPlanDto) {
     return this.outfitService.generateWeekPlan(req.user.userId, body);
+  }
+
+  @Post('weekly/:dayIndex/regenerate')
+  @ApiOperation({
+    summary: 'Regenerate AI outfit for a single day (e.g. refresh Friday)',
+    description:
+      'When the user clicks refresh on a specific weekday (e.g. Friday), call this with dayIndex 4 and weekStartDate (Monday of that week). Generates a new outfit image for that day only from wardrobe and weather. Returns the updated day. Profile image (userImage or avatar) is required.',
+  })
+  @ApiBody({ type: RegenerateDayDto })
+  @ApiResponse({
+    status: 201,
+    description: 'Regenerated day. Body: { weekStartDate, day: { dayIndex, weekday, imageUrl, outfit, weather } }',
+  })
+  @ApiResponse({ status: 400, description: 'Invalid weekStartDate, dayIndex, or missing profile image' })
+  async regenerateDay(
+    @Request() req: any,
+    @Param('dayIndex', ParseIntPipe) dayIndex: number,
+    @Body() body: RegenerateDayDto,
+  ) {
+    if (dayIndex < 0 || dayIndex > 6) {
+      throw new BadRequestException('dayIndex must be 0 (Monday) to 6 (Sunday).');
+    }
+    if (body.weekStartDate == null || body.weekStartDate === '') {
+      throw new BadRequestException('weekStartDate is required in the request body.');
+    }
+    return this.outfitService.regenerateDayPlan(req.user.userId, dayIndex, body);
   }
 
   @Put('weekly/:dayIndex')

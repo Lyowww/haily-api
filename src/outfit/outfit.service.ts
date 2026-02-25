@@ -1,5 +1,5 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
-import { GenerateOutfitDto, SaveOutfitDto, GenerateWeekPlanDto } from './dto';
+import { GenerateOutfitDto, SaveOutfitDto, GenerateWeekPlanDto, RegenerateDayDto } from './dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { WeatherService } from '../weather/weather.service';
 import { AIService } from '../ai/ai.service';
@@ -465,6 +465,174 @@ export class OutfitService {
     return {
       weekStartDate: weekStartDateStr,
       days,
+    };
+  }
+
+  /**
+   * Regenerate AI outfit for a single day (e.g. when user clicks refresh on Friday).
+   * Uses same logic as generateWeekPlan but for one day only. Returns the updated day.
+   */
+  async regenerateDayPlan(userId: string, dayIndex: number, dto: RegenerateDayDto) {
+    if (dayIndex < 0 || dayIndex > 6) {
+      throw new BadRequestException('dayIndex must be 0 (Monday) to 6 (Sunday).');
+    }
+    const weekStart = parseWeekStartDate(dto.weekStartDate);
+    const weekStartDateStr = weekStart.toISOString().slice(0, 10);
+
+    const [wardrobeItems, location, user] = await Promise.all([
+      this.prisma.wardrobeItem.findMany({
+        where: { userId },
+        select: { id: true, category: true, seasonTags: true, imageUrl: true },
+      }),
+      (async () => {
+        if (dto.latitude != null && dto.longitude != null) {
+          return { latitude: dto.latitude, longitude: dto.longitude, timezone: dto.timezone };
+        }
+        const settings = await this.prisma.notificationSettings.findUnique({
+          where: { userId },
+          select: { latitude: true, longitude: true, timezone: true },
+        });
+        if (settings?.latitude != null && settings?.longitude != null) {
+          return {
+            latitude: settings.latitude,
+            longitude: settings.longitude,
+            timezone: settings.timezone ?? dto.timezone,
+          };
+        }
+        return null;
+      })(),
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { avatarBaseImageUrl: true },
+      }),
+    ]);
+
+    const userPhotoBase64 = dto.userImage?.trim() || null;
+    const userPhotoUrl = user?.avatarBaseImageUrl ?? '';
+    if (!userPhotoBase64 && !userPhotoUrl) {
+      throw new BadRequestException(
+        'Profile image is required for AI outfit generation. Send userImage (base64) in the request body or set the user avatar (avatarBaseImageUrl) in the app.',
+      );
+    }
+
+    const weekWeather: DayWeather[] = location
+      ? await this.weatherService.getWeekForecast({
+          latitude: location.latitude,
+          longitude: location.longitude,
+          timezone: location.timezone,
+          weekStartDate: weekStartDateStr,
+        })
+      : (() => {
+          const base = new Date(weekStart.getTime());
+          return Array.from({ length: 7 }, (_, i) => {
+            const d = new Date(base);
+            d.setUTCDate(d.getUTCDate() + i);
+            return {
+              dayIndex: i,
+              date: d.toISOString().slice(0, 10),
+              minTempC: 15,
+              maxTempC: 22,
+              condition: 'clear',
+            };
+          });
+        })();
+
+    const dayWeather = weekWeather[dayIndex];
+    if (!dayWeather) {
+      throw new BadRequestException('Invalid dayIndex for this week.');
+    }
+
+    const byCat: WardrobeByCategory = {
+      tops: wardrobeItems.filter((i) => isTop(i.category)),
+      bottoms: wardrobeItems.filter((i) => isBottom(i.category)),
+      shoes: wardrobeItems.filter((i) => isShoes(i.category)),
+      outerwear: wardrobeItems.filter((i) => isOuterwear(i.category)),
+    };
+
+    const plan = this.pickOutfitForDay(byCat, dayWeather, dayIndex);
+    const wardrobeById = new Map(wardrobeItems.map((i) => [i.id, i]));
+    const clothingItems = plan.wardrobeItemIds.flatMap((id) => {
+      const item = wardrobeById.get(id);
+      return item != null ? [{ id: item.id, category: item.category, imageUrl: item.imageUrl }] : [];
+    });
+
+    let imageUrl: string | null = null;
+    let promptVersion: string | null = null;
+
+    if (clothingItems.length > 0) {
+      try {
+        const result = await this.aiService.generateOutfitImage({
+          userPhotoUrl,
+          userPhotoBase64: userPhotoBase64 ?? undefined,
+          clothingItems,
+          weather: {
+            temperature: plan.weather.temperature,
+            condition: plan.weather.condition,
+          },
+          stylePrompt: dto.preferredStyle ? `Style: ${dto.preferredStyle}.` : undefined,
+        });
+        imageUrl = result.imageUrl;
+        promptVersion = result.prompt;
+      } catch (err) {
+        console.error(`AI outfit generation failed for day ${dayIndex}:`, err);
+      }
+    }
+
+    const outfit = await this.prisma.outfit.upsert({
+      where: {
+        userId_weekStartDate_dayIndex: {
+          userId,
+          weekStartDate: weekStart,
+          dayIndex,
+        },
+      },
+      create: {
+        userId,
+        weekStartDate: weekStart,
+        dayIndex,
+        status: 'ready',
+        imageUrl,
+        promptVersion,
+        category: 'saved',
+        weather: JSON.stringify({
+          temperature: plan.weather.temperature,
+          condition: plan.weather.condition,
+          locationName: plan.weather.locationName,
+        }),
+        outfitItems:
+          plan.wardrobeItemIds.length > 0
+            ? { create: plan.wardrobeItemIds.map((wardrobeItemId) => ({ wardrobeItemId })) }
+            : undefined,
+      },
+      update: {
+        status: 'ready',
+        category: 'saved',
+        ...(imageUrl != null && { imageUrl }),
+        ...(promptVersion != null && { promptVersion }),
+        weather: JSON.stringify({
+          temperature: plan.weather.temperature,
+          condition: plan.weather.condition,
+          locationName: plan.weather.locationName,
+        }),
+        outfitItems: {
+          deleteMany: {},
+          ...(plan.wardrobeItemIds.length > 0
+            ? { create: plan.wardrobeItemIds.map((wardrobeItemId) => ({ wardrobeItemId })) }
+            : {}),
+        },
+      },
+      include: { outfitItems: { include: { wardrobeItem: true } } },
+    });
+
+    return {
+      weekStartDate: weekStartDateStr,
+      day: {
+        dayIndex: outfit.dayIndex,
+        weekday: WEEKDAY_NAMES[outfit.dayIndex],
+        imageUrl,
+        outfit,
+        weather: plan.weather,
+      },
     };
   }
 
