@@ -63,10 +63,17 @@ export class OutfitController {
   }
 
   @Post('weekly/generate')
-  @ApiOperation({ summary: 'Generate full week plan for the selected week (all 7 days)' })
+  @ApiOperation({
+    summary: 'Generate AI outfit images for the full week (7 days)',
+    description:
+      'Long-running request (~1–2 min). Generates one AI outfit image per day from the user\'s wardrobe and weather. Returns an array of days, each with imageUrl. Profile image (userImage base64 or user avatar) is required and is sent to AI for every day so the user\'s face is preserved. Client should keep the connection open until the response succeeds.',
+  })
   @ApiBody({ type: GenerateWeekPlanDto })
-  @ApiResponse({ status: 201, description: 'Week plan generated with suggestions per day' })
-  @ApiResponse({ status: 400, description: 'Invalid weekStartDate' })
+  @ApiResponse({
+    status: 201,
+    description: 'Week plan with AI-generated outfit image per day. Body: { weekStartDate, days: [{ dayIndex, weekday, imageUrl, outfit, weather }] }',
+  })
+  @ApiResponse({ status: 400, description: 'Invalid weekStartDate or missing profile image' })
   async generateWeekPlan(@Request() req: any, @Body() body: GenerateWeekPlanDto) {
     return this.outfitService.generateWeekPlan(req.user.userId, body);
   }

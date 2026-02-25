@@ -2,6 +2,7 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { GenerateOutfitDto, SaveOutfitDto, GenerateWeekPlanDto } from './dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { WeatherService } from '../weather/weather.service';
+import { AIService } from '../ai/ai.service';
 import type { DayWeather } from '../weather/weather.service';
 import { SeasonTag } from '../wardrobe/enums';
 
@@ -10,7 +11,7 @@ const WEEKDAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', '
 const COLD_MAX_C = 12;
 const HOT_MIN_C = 24;
 
-type WardrobeItemRow = { id: string; category: string; seasonTags: string | null };
+type WardrobeItemRow = { id: string; category: string; seasonTags: string | null; imageUrl: string };
 function isTop(c: string): boolean {
   const lower = c.toLowerCase();
   return ['top', 'tops', 'outerwear', 'jacket', 'jackets', 'coat', 'coats', 'shirt', 'tshirt', 't-shirt', 'blouse', 'sweater', 'hoodie', 'tank', 'polo'].some((x) => lower.includes(x));
@@ -107,6 +108,7 @@ export class OutfitService {
   constructor(
     private prisma: PrismaService,
     private weatherService: WeatherService,
+    private aiService: AIService,
   ) {}
   // TODO: Integrate with AI service for actual outfit generation
   async generateOutfit(dto: GenerateOutfitDto): Promise<OutfitSuggestion[]> {
@@ -287,17 +289,19 @@ export class OutfitService {
   }
 
   /**
-   * Generate 7 different outfits from the user's wardrobe, one per day, using each day's
-   * weather. Maximum speed: one wardrobe query, one weather call, then parallel saves.
+   * Generate 7 AI outfit images (one per day) from the user's wardrobe and weather.
+   * Long-running request: mobile app keeps the connection open (~1–2 min) and receives
+   * an array of days with generated imageUrl per day. User profile image is always
+   * sent to AI so the face is preserved 100%.
    */
   async generateWeekPlan(userId: string, dto: GenerateWeekPlanDto) {
     const weekStart = parseWeekStartDate(dto.weekStartDate);
     const weekStartDateStr = weekStart.toISOString().slice(0, 10);
 
-    const [wardrobeItems, location] = await Promise.all([
+    const [wardrobeItems, location, user] = await Promise.all([
       this.prisma.wardrobeItem.findMany({
         where: { userId },
-        select: { id: true, category: true, seasonTags: true },
+        select: { id: true, category: true, seasonTags: true, imageUrl: true },
       }),
       (async () => {
         if (dto.latitude != null && dto.longitude != null) {
@@ -316,7 +320,19 @@ export class OutfitService {
         }
         return null;
       })(),
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { avatarBaseImageUrl: true },
+      }),
     ]);
+
+    const userPhotoBase64 = dto.userImage?.trim() || null;
+    const userPhotoUrl = user?.avatarBaseImageUrl ?? '';
+    if (!userPhotoBase64 && !userPhotoUrl) {
+      throw new BadRequestException(
+        'Profile image is required for AI outfit generation. Send userImage (base64) in the request body or set the user avatar (avatarBaseImageUrl) in the app.',
+      );
+    }
 
     const weekWeather: DayWeather[] = location
       ? await this.weatherService.getWeekForecast({
@@ -352,56 +368,97 @@ export class OutfitService {
       return { dayIndex: dw.dayIndex, wardrobeItemIds: picked.wardrobeItemIds, weather: picked.weather };
     });
 
-    const saved = await Promise.all(
-      dayPlans.map((plan) =>
-        this.prisma.outfit.upsert({
-          where: {
-            userId_weekStartDate_dayIndex: {
-              userId,
-              weekStartDate: weekStart,
-              dayIndex: plan.dayIndex,
+    const wardrobeById = new Map(wardrobeItems.map((i) => [i.id, i]));
+
+    const days: Array<{
+      dayIndex: number;
+      weekday: string;
+      imageUrl: string | null;
+      outfit: Awaited<ReturnType<typeof this.prisma.outfit.upsert>>;
+      weather: { temperature: number; condition: string; locationName: string };
+    }> = [];
+
+    for (const plan of dayPlans) {
+      const clothingItems = plan.wardrobeItemIds
+        .map((id) => wardrobeById.get(id))
+        .filter((item): item is WardrobeItemRow => item != null)
+        .map((item) => ({ id: item.id, category: item.category, imageUrl: item.imageUrl }));
+
+      let imageUrl: string | null = null;
+      let promptVersion: string | null = null;
+
+      if (clothingItems.length > 0) {
+        try {
+          const result = await this.aiService.generateOutfitImage({
+            userPhotoUrl,
+            userPhotoBase64: userPhotoBase64 ?? undefined,
+            clothingItems,
+            weather: {
+              temperature: plan.weather.temperature,
+              condition: plan.weather.condition,
             },
-          },
-          create: {
+            stylePrompt: dto.preferredStyle ? `Style: ${dto.preferredStyle}.` : undefined,
+          });
+          imageUrl = result.imageUrl;
+          promptVersion = result.prompt;
+        } catch (err) {
+          console.error(`AI outfit generation failed for day ${plan.dayIndex}:`, err);
+          // Continue: save outfit without image so UI can show placeholder or retry
+        }
+      }
+
+      const outfit = await this.prisma.outfit.upsert({
+        where: {
+          userId_weekStartDate_dayIndex: {
             userId,
             weekStartDate: weekStart,
             dayIndex: plan.dayIndex,
-            status: 'ready',
-            weather: JSON.stringify({
-              temperature: plan.weather.temperature,
-              condition: plan.weather.condition,
-              locationName: plan.weather.locationName,
-            }),
-            outfitItems:
-              plan.wardrobeItemIds.length > 0
-                ? { create: plan.wardrobeItemIds.map((wardrobeItemId) => ({ wardrobeItemId })) }
-                : undefined,
           },
-          update: {
-            status: 'ready',
-            weather: JSON.stringify({
-              temperature: plan.weather.temperature,
-              condition: plan.weather.condition,
-              locationName: plan.weather.locationName,
-            }),
-            outfitItems: {
-              deleteMany: {},
-              ...(plan.wardrobeItemIds.length > 0
-                ? { create: plan.wardrobeItemIds.map((wardrobeItemId) => ({ wardrobeItemId })) }
-                : {}),
-            },
+        },
+        create: {
+          userId,
+          weekStartDate: weekStart,
+          dayIndex: plan.dayIndex,
+          status: 'ready',
+          imageUrl,
+          promptVersion,
+          weather: JSON.stringify({
+            temperature: plan.weather.temperature,
+            condition: plan.weather.condition,
+            locationName: plan.weather.locationName,
+          }),
+          outfitItems:
+            plan.wardrobeItemIds.length > 0
+              ? { create: plan.wardrobeItemIds.map((wardrobeItemId) => ({ wardrobeItemId })) }
+              : undefined,
+        },
+        update: {
+          status: 'ready',
+          ...(imageUrl != null && { imageUrl }),
+          ...(promptVersion != null && { promptVersion }),
+          weather: JSON.stringify({
+            temperature: plan.weather.temperature,
+            condition: plan.weather.condition,
+            locationName: plan.weather.locationName,
+          }),
+          outfitItems: {
+            deleteMany: {},
+            ...(plan.wardrobeItemIds.length > 0
+              ? { create: plan.wardrobeItemIds.map((wardrobeItemId) => ({ wardrobeItemId })) }
+              : {}),
           },
-          include: { outfitItems: { include: { wardrobeItem: true } } },
-        }),
-      ),
-    );
+        },
+        include: { outfitItems: { include: { wardrobeItem: true } } },
+      });
 
-    const days = saved.map((outfit) => ({
-      dayIndex: outfit.dayIndex,
-      weekday: WEEKDAY_NAMES[outfit.dayIndex],
-      outfit,
-      weather: dayPlans[outfit.dayIndex]!.weather,
-    }));
+      days.push({
+        dayIndex: outfit.dayIndex,
+        weekday: WEEKDAY_NAMES[outfit.dayIndex],
+        imageUrl,
+        outfit,
+        weather: plan.weather,
+      });
+    }
 
     return {
       weekStartDate: weekStartDateStr,
