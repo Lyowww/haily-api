@@ -23,7 +23,22 @@ function generateSixDigitCode(): string {
   return String(randomInt(100000, 999999));
 }
 
-/** Shape user for API responses: include emailVerified derived from emailVerifiedAt */
+/** Profile is complete when avatar, sex, age, and height are all set */
+function isProfileComplete(user: {
+  avatarBaseImageUrl: string | null;
+  sex: string | null;
+  age: number | null;
+  heightCm: number | null;
+}): boolean {
+  return !!(
+    user.avatarBaseImageUrl &&
+    user.sex &&
+    user.age != null &&
+    user.heightCm != null
+  );
+}
+
+/** Shape user for API responses: include emailVerified and derived onboardingStatus when profile is complete */
 function toUserResponse(user: {
   id: string;
   email: string;
@@ -36,11 +51,15 @@ function toUserResponse(user: {
   updatedAt: Date;
   emailVerifiedAt?: Date | null;
 }) {
+  const onboardingStatus =
+    user.onboardingStatus === 'completed' || isProfileComplete(user)
+      ? 'completed'
+      : user.onboardingStatus;
   return {
     id: user.id,
     email: user.email,
     avatarBaseImageUrl: user.avatarBaseImageUrl,
-    onboardingStatus: user.onboardingStatus,
+    onboardingStatus,
     sex: user.sex,
     age: user.age,
     heightCm: user.heightCm,
@@ -275,7 +294,12 @@ export class AuthService {
   async updateProfilePhoto(userId: string, photoUrl: string) {
     const user = await this.prisma.user.update({
       where: { id: userId },
-      data: { avatarBaseImageUrl: photoUrl },
+      data: {
+        avatarBaseImageUrl: photoUrl,
+        ...(await this.getProfileCompleteUpdate(userId, {
+          avatarBaseImageUrl: photoUrl,
+        })),
+      },
       select: {
         id: true,
         email: true,
@@ -303,6 +327,7 @@ export class AuthService {
         ...(update.sex !== undefined ? { sex: update.sex } : {}),
         ...(update.age !== undefined ? { age: update.age } : {}),
         ...(update.heightCm !== undefined ? { heightCm: update.heightCm } : {}),
+        ...(await this.getProfileCompleteUpdate(userId, update)),
       },
       select: {
         id: true,
@@ -319,6 +344,39 @@ export class AuthService {
     });
 
     return toUserResponse(user);
+  }
+
+  /** If profile will be complete after this update, return { onboardingStatus: 'completed' } to persist it */
+  private async getProfileCompleteUpdate(
+    userId: string,
+    partial: {
+      avatarBaseImageUrl?: string;
+      sex?: string;
+      age?: number;
+      heightCm?: number;
+    },
+  ): Promise<{ onboardingStatus?: string }> {
+    const current = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        avatarBaseImageUrl: true,
+        sex: true,
+        age: true,
+        heightCm: true,
+        onboardingStatus: true,
+      },
+    });
+    if (!current || current.onboardingStatus === 'completed') {
+      return {};
+    }
+    const after = {
+      avatarBaseImageUrl: partial.avatarBaseImageUrl ?? current.avatarBaseImageUrl,
+      sex: partial.sex ?? current.sex,
+      age: partial.age !== undefined ? partial.age : current.age,
+      heightCm:
+        partial.heightCm !== undefined ? partial.heightCm : current.heightCm,
+    };
+    return isProfileComplete(after) ? { onboardingStatus: 'completed' } : {};
   }
 
   async changePassword(userId: string, currentPassword: string, newPassword: string) {
