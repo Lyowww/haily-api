@@ -51,16 +51,34 @@ export class BillingController {
     if (sessionId) {
       try {
         await this.billingService.syncSubscriptionFromCheckoutSession(sessionId);
-      } catch {
-        // Still show success page; webhook may have already synced
+      } catch (err: any) {
+        // Log so we can debug; still show success page and let client retry via confirm-session
+        console.error('payment-success sync failed:', err?.message ?? err);
       }
     }
-    const html = this.getPaymentSuccessHtml(redirectUrl);
+    const html = this.getPaymentSuccessHtml(redirectUrl, sessionId);
     res.type('text/html').send(html);
   }
 
-  private getPaymentSuccessHtml(redirectUrl: string): string {
+  @Post('confirm-session')
+  @Public()
+  @ApiOperation({ summary: 'Confirm checkout session and sync subscription (called from success page)' })
+  @ApiResponse({ status: 200, description: 'Subscription synced' })
+  @ApiResponse({ status: 400, description: 'session_id required' })
+  async confirmSession(@Body() body: { session_id?: string }) {
+    const sessionId = body?.session_id;
+    if (!sessionId || typeof sessionId !== 'string') {
+      throw new BadRequestException('session_id required');
+    }
+    await this.billingService.syncSubscriptionFromCheckoutSession(sessionId);
+    return { ok: true };
+  }
+
+  private getPaymentSuccessHtml(redirectUrl: string, sessionId?: string): string {
     const safeUrl = redirectUrl.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    const safeSessionId = sessionId
+      ? sessionId.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+      : '';
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -122,6 +140,16 @@ export class BillingController {
     <a href="${safeUrl}">Return to app</a>
     <p class="note">Redirecting in 5 seconds…</p>
   </div>
+  ${safeSessionId ? `<script>
+(function(){
+  var sessionId = "${safeSessionId}";
+  fetch(window.location.origin + "/api/billing/confirm-session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId })
+  }).catch(function(){});
+})();
+</script>` : ''}
 </body>
 </html>`;
   }

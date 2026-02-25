@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { ConfigService } from '../config';
 import { PrismaService } from '../prisma/prisma.service';
 import Stripe from 'stripe';
@@ -22,6 +22,7 @@ export interface SubscriptionStatus {
 
 @Injectable()
 export class BillingService {
+  private readonly logger = new Logger(BillingService.name);
   private stripe: Stripe | null = null;
 
   constructor(
@@ -240,44 +241,68 @@ export class BillingService {
     const session = await stripe.checkout.sessions.retrieve(sessionId, {
       expand: ['subscription'],
     });
+    const customerId =
+      typeof session.customer === 'string' ? session.customer : session.customer?.id ?? null;
     const subscriptionId =
       typeof session.subscription === 'object' && session.subscription
         ? session.subscription.id
         : (session.subscription as string | null);
-    const userId =
-      session.metadata?.userId ??
-      (typeof session.subscription === 'object' && session.subscription?.metadata?.userId);
-    if (!userId || !subscriptionId) return;
+
+    let userId: string | null =
+      (session.metadata?.userId as string) ??
+      (typeof session.subscription === 'object' &&
+        (session.subscription as Stripe.Subscription)?.metadata?.userId);
+
+    if (!userId && customerId) {
+      const existing = await this.prisma.subscription.findFirst({
+        where: { stripeCustomerId: customerId },
+        select: { userId: true },
+      });
+      userId = existing?.userId ?? null;
+    }
+
+    if (!userId || !subscriptionId) {
+      this.logger.warn(
+        `syncSubscriptionFromCheckoutSession: missing userId or subscriptionId (session_id=${sessionId}, customerId=${customerId})`,
+      );
+      return;
+    }
+
     const sub =
       typeof session.subscription === 'object' && session.subscription
-        ? session.subscription
+        ? (session.subscription as Stripe.Subscription)
         : await stripe.subscriptions.retrieve(subscriptionId);
+
     const firstItem = sub.items.data[0];
-    const priceId = firstItem?.price?.id;
+    const rawPrice = firstItem?.price;
+    const priceId =
+      typeof rawPrice === 'string' ? rawPrice : (rawPrice as Stripe.Price | undefined)?.id;
     const plan = priceId ? this.planFromPriceId(priceId) : 'pro';
     const periodStart = firstItem?.current_period_start;
     const periodEnd = firstItem?.current_period_end;
+
     await this.prisma.subscription.upsert({
       where: { userId },
       create: {
         userId,
         plan,
         status: 'active',
-        stripeCustomerId: session.customer as string,
+        stripeCustomerId: customerId,
         stripeSubscriptionId: subscriptionId,
-        currentPeriodStart: periodStart ? new Date(periodStart * 1000) : null,
-        currentPeriodEnd: periodEnd ? new Date(periodEnd * 1000) : null,
+        currentPeriodStart: periodStart != null ? new Date(periodStart * 1000) : null,
+        currentPeriodEnd: periodEnd != null ? new Date(periodEnd * 1000) : null,
       },
       update: {
         plan,
         status: 'active',
-        stripeCustomerId: session.customer as string,
+        stripeCustomerId: customerId,
         stripeSubscriptionId: subscriptionId,
-        currentPeriodStart: periodStart ? new Date(periodStart * 1000) : null,
-        currentPeriodEnd: periodEnd ? new Date(periodEnd * 1000) : null,
+        currentPeriodStart: periodStart != null ? new Date(periodStart * 1000) : null,
+        currentPeriodEnd: periodEnd != null ? new Date(periodEnd * 1000) : null,
         cancelAtPeriodEnd: false,
       },
     });
+    this.logger.log(`Synced subscription for user ${userId} (session_id=${sessionId})`);
   }
 
   /** Handle Stripe webhook (checkout.session.completed, customer.subscription.updated/deleted). */
@@ -298,11 +323,27 @@ export class BillingService {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session;
         const subscriptionId = session.subscription as string | null;
-        const userId = session.metadata?.userId ?? (session.subscription as any)?.metadata?.userId;
-        if (!userId || !subscriptionId) break;
+        const customerId =
+          typeof session.customer === 'string' ? session.customer : session.customer?.id ?? null;
+        let userId = (session.metadata?.userId as string) ?? (session.subscription as any)?.metadata?.userId;
+        if (!userId && customerId) {
+          const existing = await this.prisma.subscription.findFirst({
+            where: { stripeCustomerId: customerId },
+            select: { userId: true },
+          });
+          userId = existing?.userId ?? undefined;
+        }
+        if (!userId || !subscriptionId) {
+          this.logger.warn(
+            `webhook checkout.session.completed: missing userId or subscriptionId (customerId=${customerId})`,
+          );
+          break;
+        }
         const sub = await stripe.subscriptions.retrieve(subscriptionId);
         const firstItem = sub.items.data[0];
-        const priceId = firstItem?.price?.id;
+        const rawPrice = firstItem?.price;
+        const priceId =
+          typeof rawPrice === 'string' ? rawPrice : (rawPrice as Stripe.Price | undefined)?.id;
         const plan = priceId ? this.planFromPriceId(priceId) : 'pro';
         const periodStart = firstItem?.current_period_start;
         const periodEnd = firstItem?.current_period_end;
@@ -312,21 +353,22 @@ export class BillingService {
             userId,
             plan,
             status: 'active',
-            stripeCustomerId: session.customer as string,
+            stripeCustomerId: customerId,
             stripeSubscriptionId: subscriptionId,
-            currentPeriodStart: periodStart ? new Date(periodStart * 1000) : null,
-            currentPeriodEnd: periodEnd ? new Date(periodEnd * 1000) : null,
+            currentPeriodStart: periodStart != null ? new Date(periodStart * 1000) : null,
+            currentPeriodEnd: periodEnd != null ? new Date(periodEnd * 1000) : null,
           },
           update: {
             plan,
             status: 'active',
-            stripeCustomerId: session.customer as string,
+            stripeCustomerId: customerId,
             stripeSubscriptionId: subscriptionId,
-            currentPeriodStart: periodStart ? new Date(periodStart * 1000) : null,
-            currentPeriodEnd: periodEnd ? new Date(periodEnd * 1000) : null,
+            currentPeriodStart: periodStart != null ? new Date(periodStart * 1000) : null,
+            currentPeriodEnd: periodEnd != null ? new Date(periodEnd * 1000) : null,
             cancelAtPeriodEnd: false,
           },
         });
+        this.logger.log(`Webhook: synced subscription for user ${userId}`);
         break;
       }
       case 'customer.subscription.updated': {
