@@ -7,6 +7,8 @@ import * as path from 'path';
 import * as https from 'https';
 import * as http from 'http';
 import sharp from 'sharp';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const heicConvert = require('heic-convert') as (options: { buffer: Buffer; format: 'PNG' | 'JPEG'; quality?: number }) => Promise<Buffer>;
 import { CutoutService } from '../cutout/cutout.service';
 import { UploadService } from '../upload/upload.service';
 import { S3Service } from '../upload/s3.service';
@@ -55,21 +57,45 @@ export class AIService {
   }
 
   /**
+   * Detect HEIC/HEIF by file signature (ftyp + heic/heix/hevc/mif1/msf1).
+   */
+  private isHeicBuffer(buffer: Buffer): boolean {
+    if (!buffer || buffer.length < 12) return false;
+    if (buffer[4] !== 0x66 || buffer[5] !== 0x74 || buffer[6] !== 0x79 || buffer[7] !== 0x70) return false;
+    const brand = buffer.toString('ascii', 8, 12);
+    return ['heic', 'heix', 'hevc', 'mif1', 'msf1'].includes(brand);
+  }
+
+  /**
    * Normalize any supported image buffer to PNG so Sharp and downstream always get a known-good format.
-   * Call this after fetching or decoding images (S3, HTTP, base64) to avoid "unsupported image format" on Vercel.
+   * Supports JPEG, PNG, WebP (via Sharp) and HEIC/HEIF (via heic-convert, e.g. iPhone photos).
    */
   private async normalizeImageToPng(inputBuffer: Buffer): Promise<Buffer> {
     if (!inputBuffer?.length) {
       throw new BadRequestException('Empty image data.');
+    }
+    if (this.isHeicBuffer(inputBuffer)) {
+      try {
+        return await heicConvert({ buffer: inputBuffer, format: 'PNG' });
+      } catch (err: any) {
+        console.error('HEIC conversion failed:', err?.message ?? err);
+        throw new BadRequestException(
+          'Failed to convert HEIC image. Please use JPEG or PNG, or try re-exporting the photo from your device.',
+        );
+      }
     }
     try {
       return await sharp(inputBuffer).png().toBuffer();
     } catch (err: any) {
       const msg = err?.message ?? String(err);
       if (msg.includes('unsupported') || msg.includes('format')) {
-        throw new BadRequestException(
-          'Unsupported image format. Please use JPEG or PNG for the user photo and clothing images. If the error persists on Vercel, send the user photo as base64 (userImage / userPhotoBase64) in the request.',
-        );
+        try {
+          return await heicConvert({ buffer: inputBuffer, format: 'PNG' });
+        } catch {
+          throw new BadRequestException(
+            'Unsupported image format. Please use JPEG, PNG, or HEIC for the user photo and clothing images.',
+          );
+        }
       }
       throw err;
     }
