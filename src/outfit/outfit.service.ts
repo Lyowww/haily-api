@@ -422,6 +422,7 @@ export class OutfitService {
           status: 'ready',
           imageUrl,
           promptVersion,
+          category: 'saved', // weekly-plan-generated outfits go into user's "saved" category
           weather: JSON.stringify({
             temperature: plan.weather.temperature,
             condition: plan.weather.condition,
@@ -434,6 +435,7 @@ export class OutfitService {
         },
         update: {
           status: 'ready',
+          category: 'saved', // keep in saved when re-generating weekly plan
           ...(imageUrl != null && { imageUrl }),
           ...(promptVersion != null && { promptVersion }),
           weather: JSON.stringify({
