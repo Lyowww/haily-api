@@ -73,15 +73,17 @@ export class BillingController {
   @Get('status')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Get subscription status and remaining limits' })
+  @ApiOperation({ summary: 'Get user subscription info (plan, period start/end, limits)' })
   @ApiResponse({
     status: 200,
-    description: 'Subscription status',
+    description: 'Subscription info: plan, status, when period starts/ends, cancel flag, and remaining limits',
     schema: {
       example: {
         plan: 'pro',
         status: 'active',
+        currentPeriodStart: '2026-03-01',
         currentPeriodEnd: '2026-04-01',
+        cancelAtPeriodEnd: false,
         limits: { aiRemaining: 100, virtualRemaining: 100, weeklyRemaining: 1 },
       },
     },

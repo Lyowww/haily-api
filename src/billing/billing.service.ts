@@ -7,7 +7,12 @@ import { PLAN_LIMITS, PRICE_TO_PLAN } from './billing.constants';
 export interface SubscriptionStatus {
   plan: string;
   status: string;
+  /** Billing period start date (YYYY-MM-DD). */
+  currentPeriodStart: string | null;
+  /** Billing period end date (YYYY-MM-DD); access until this date when active. */
   currentPeriodEnd: string | null;
+  /** True if subscription is set to cancel at period end (no renewal). */
+  cancelAtPeriodEnd: boolean;
   limits: {
     aiRemaining: number;
     virtualRemaining: number;
@@ -140,7 +145,9 @@ export class BillingService {
       return {
         plan: 'starter',
         status: subscription?.status ?? 'inactive',
+        currentPeriodStart: subscription?.currentPeriodStart?.toISOString().slice(0, 10) ?? null,
         currentPeriodEnd: subscription?.currentPeriodEnd?.toISOString().slice(0, 10) ?? null,
+        cancelAtPeriodEnd: subscription?.cancelAtPeriodEnd ?? false,
         limits: {
           aiRemaining: 0,
           virtualRemaining: 0,
@@ -160,7 +167,9 @@ export class BillingService {
     return {
       plan: subscription.plan,
       status: subscription.status,
+      currentPeriodStart: subscription.currentPeriodStart?.toISOString().slice(0, 10) ?? null,
       currentPeriodEnd: subscription.currentPeriodEnd?.toISOString().slice(0, 10) ?? null,
+      cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
       limits: {
         aiRemaining,
         virtualRemaining,

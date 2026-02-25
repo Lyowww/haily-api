@@ -17,7 +17,7 @@ If Stripe keys are not set, billing endpoints that call Stripe will return 400 "
 |--------|------|------|-------------|
 | POST | `/api/billing/create-checkout-session` | JWT | Create Stripe Checkout session; body: `{ "priceId": "price_xxx" }`. Returns `{ "url": "https://checkout.stripe.com/..." }`. |
 | POST | `/api/billing/webhook` | Stripe signature | Stripe webhook: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
-| GET | `/api/billing/status` | JWT | Subscription status and remaining limits: `plan`, `status`, `currentPeriodEnd`, `limits.aiRemaining`, `limits.virtualRemaining`, `limits.weeklyRemaining`. |
+| GET | `/api/billing/status` | JWT | Subscription info: `plan`, `status`, `currentPeriodStart`, `currentPeriodEnd`, `cancelAtPeriodEnd`, and `limits` (`aiRemaining`, `virtualRemaining`, `weeklyRemaining`). |
 | POST | `/api/billing/cancel` | JWT | Set `cancel_at_period_end: true` on the subscription. |
 | POST | `/api/billing/restore` | JWT | Clear `cancel_at_period_end` (e.g. after reinstall). |
 
