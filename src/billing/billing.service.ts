@@ -325,7 +325,8 @@ export class BillingService {
         const subscriptionId = session.subscription as string | null;
         const customerId =
           typeof session.customer === 'string' ? session.customer : session.customer?.id ?? null;
-        let userId = (session.metadata?.userId as string) ?? (session.subscription as any)?.metadata?.userId;
+        let userId: string | undefined =
+          (session.metadata?.userId as string) ?? (session.subscription as any)?.metadata?.userId;
         if (!userId && customerId) {
           const existing = await this.prisma.subscription.findFirst({
             where: { stripeCustomerId: customerId },
