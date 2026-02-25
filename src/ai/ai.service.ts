@@ -55,6 +55,27 @@ export class AIService {
   }
 
   /**
+   * Normalize any supported image buffer to PNG so Sharp and downstream always get a known-good format.
+   * Call this after fetching or decoding images (S3, HTTP, base64) to avoid "unsupported image format" on Vercel.
+   */
+  private async normalizeImageToPng(inputBuffer: Buffer): Promise<Buffer> {
+    if (!inputBuffer?.length) {
+      throw new BadRequestException('Empty image data.');
+    }
+    try {
+      return await sharp(inputBuffer).png().toBuffer();
+    } catch (err: any) {
+      const msg = err?.message ?? String(err);
+      if (msg.includes('unsupported') || msg.includes('format')) {
+        throw new BadRequestException(
+          'Unsupported image format. Please use JPEG or PNG for the user photo and clothing images. If the error persists on Vercel, send the user photo as base64 (userImage / userPhotoBase64) in the request.',
+        );
+      }
+      throw err;
+    }
+  }
+
+  /**
    * Adds padding around image to prevent model cropping
    * @param inputBuffer Image buffer
    * @param padPercent Padding percentage (0.2 = 20% on each side)
@@ -145,17 +166,15 @@ export class AIService {
         if (!buffer || buffer.length === 0) {
           throw new Error(`Local image file is empty (0 bytes): ${filepath}`);
         }
-        const mimeType = filepath.endsWith('.png') ? 'image/png' : 'image/jpeg';
-        return { buffer, mimeType };
+        const normalized = await this.normalizeImageToPng(buffer);
+        return { buffer: normalized, mimeType: 'image/png' };
       }
 
       // Our S3 bucket URL: use credentialed GetObject (works with private bucket)
       if (this.s3Service.isEnabled && this.s3Service.isOurBucketUrl(imageUrl)) {
-        const { body, contentType } = await this.s3Service.getObjectByUrl(imageUrl);
-        return {
-          buffer: body,
-          mimeType: contentType ?? (imageUrl.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg'),
-        };
+        const { body } = await this.s3Service.getObjectByUrl(imageUrl);
+        const normalized = await this.normalizeImageToPng(body);
+        return { buffer: normalized, mimeType: 'image/png' };
       }
 
       // Other remote URL - download via HTTP
@@ -177,10 +196,14 @@ export class AIService {
 
             const chunks: Buffer[] = [];
             response.on('data', (chunk) => chunks.push(chunk));
-            response.on('end', () => {
+            response.on('end', async () => {
               const buffer = Buffer.concat(chunks);
-              const mimeType = response.headers['content-type'] || 'image/jpeg';
-              resolve({ buffer, mimeType });
+              try {
+                const normalized = await this.normalizeImageToPng(buffer);
+                resolve({ buffer: normalized, mimeType: 'image/png' });
+              } catch (e) {
+                reject(e);
+              }
             });
           });
 
@@ -204,20 +227,18 @@ export class AIService {
     addPadding = false,
   ): Promise<{ file: any; width: number; height: number }> {
     let buffer: Buffer;
-    let mimeType = 'image/jpeg';
 
     if (base64.startsWith('data:')) {
       const match = base64.match(/^data:([^;]+);base64,(.+)$/);
       if (!match) throw new Error('Invalid data URL for user photo');
-      mimeType = match[1].trim().toLowerCase();
-      if (!mimeType.startsWith('image/')) mimeType = 'image/jpeg';
       buffer = Buffer.from(match[2], 'base64');
     } else {
       buffer = Buffer.from(base64, 'base64');
     }
 
     if (!buffer.length) throw new Error('Empty image data');
-    return this.bufferToFile(buffer, mimeType, filename, addPadding);
+    const normalized = await this.normalizeImageToPng(buffer);
+    return this.bufferToFile(normalized, 'image/png', filename, addPadding);
   }
 
   /**
@@ -229,18 +250,30 @@ export class AIService {
     filename: string,
     addPadding = false,
   ): Promise<{ file: any; width: number; height: number }> {
-    const preparedBuffer = addPadding
+    let preparedBuffer = addPadding
       ? Buffer.from(await this.padImageToSafeFrame(buffer, 0.2))
       : buffer;
 
-    const meta = await sharp(preparedBuffer).metadata();
+    let meta: sharp.Metadata;
+    let effectiveMimeType = mimeType;
+    try {
+      meta = await sharp(preparedBuffer).metadata();
+    } catch (err: any) {
+      if (err?.message?.includes('unsupported') || err?.message?.includes('format')) {
+        preparedBuffer = await this.normalizeImageToPng(preparedBuffer);
+        meta = await sharp(preparedBuffer).metadata();
+        effectiveMimeType = 'image/png';
+      } else {
+        throw err;
+      }
+    }
     if (!meta.width || !meta.height) {
       throw new Error('Invalid image dimensions');
     }
 
-    const blob = new Blob([new Uint8Array(preparedBuffer)], { type: mimeType });
+    const blob = new Blob([new Uint8Array(preparedBuffer)], { type: effectiveMimeType });
     // @ts-ignore - File constructor available in Node 18+
-    const file = new File([blob], filename, { type: mimeType });
+    const file = new File([blob], filename, { type: effectiveMimeType });
 
     return { file, width: meta.width, height: meta.height };
   }
