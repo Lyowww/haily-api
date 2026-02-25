@@ -3,14 +3,17 @@ import {
   Post,
   Get,
   Body,
+  Query,
   UseGuards,
   Request,
   RawBodyRequest,
   Req,
+  Res,
   Headers,
   BadRequestException,
   Redirect,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { BillingService } from './billing.service';
 import { CreateCheckoutSessionDto } from './dto';
@@ -39,11 +42,88 @@ export class BillingController {
 
   @Get('payment-success')
   @Public()
-  @Redirect()
-  @ApiOperation({ summary: 'Stripe checkout success redirect (set STRIPE_SUCCESS_URL to this URL)' })
-  paymentSuccess() {
-    const target = this.config.stripeSuccessRedirect ?? 'haily://payment-success';
-    return { url: target, statusCode: 302 };
+  @ApiOperation({ summary: 'Stripe checkout success page (set STRIPE_SUCCESS_URL to this URL)' })
+  async paymentSuccess(
+    @Query('session_id') sessionId: string | undefined,
+    @Res() res: Response,
+  ) {
+    const redirectUrl = this.config.stripeSuccessRedirect ?? 'haily://payment-success';
+    if (sessionId) {
+      try {
+        await this.billingService.syncSubscriptionFromCheckoutSession(sessionId);
+      } catch {
+        // Still show success page; webhook may have already synced
+      }
+    }
+    const html = this.getPaymentSuccessHtml(redirectUrl);
+    res.type('text/html').send(html);
+  }
+
+  private getPaymentSuccessHtml(redirectUrl: string): string {
+    const safeUrl = redirectUrl.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="refresh" content="5;url=${safeUrl}">
+  <title>Payment successful – Haily</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #f8f4ff 0%, #e8e0f5 100%);
+      color: #1a1a2e;
+    }
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 2.5rem;
+      max-width: 420px;
+      text-align: center;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.08);
+    }
+    .icon {
+      width: 72px;
+      height: 72px;
+      margin: 0 auto 1.5rem;
+      background: linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2.5rem;
+    }
+    h1 { font-size: 1.5rem; margin-bottom: 0.5rem; font-weight: 700; }
+    p { color: #64748b; line-height: 1.6; margin-bottom: 1.5rem; }
+    a {
+      display: inline-block;
+      background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
+      color: #fff;
+      text-decoration: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 10px;
+      font-weight: 600;
+      margin-top: 0.5rem;
+    }
+    a:hover { opacity: 0.95; }
+    .note { font-size: 0.875rem; color: #94a3b8; margin-top: 1.5rem; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">✓</div>
+    <h1>Payment successful</h1>
+    <p>Your subscription is active. You can close this page or you’ll be redirected back to the app shortly.</p>
+    <a href="${safeUrl}">Return to app</a>
+    <p class="note">Redirecting in 5 seconds…</p>
+  </div>
+</body>
+</html>`;
   }
 
   @Get('payment-cancel')

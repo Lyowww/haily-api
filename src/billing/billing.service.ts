@@ -231,6 +231,55 @@ export class BillingService {
     return { url };
   }
 
+  /**
+   * Sync subscription from a Stripe checkout session (e.g. when user lands on payment-success with session_id).
+   * Idempotent with webhook: safe to call even if webhook already processed the session.
+   */
+  async syncSubscriptionFromCheckoutSession(sessionId: string): Promise<void> {
+    const stripe = this.ensureStripe();
+    const session = await stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ['subscription'],
+    });
+    const subscriptionId =
+      typeof session.subscription === 'object' && session.subscription
+        ? session.subscription.id
+        : (session.subscription as string | null);
+    const userId =
+      session.metadata?.userId ??
+      (typeof session.subscription === 'object' && session.subscription?.metadata?.userId);
+    if (!userId || !subscriptionId) return;
+    const sub =
+      typeof session.subscription === 'object' && session.subscription
+        ? session.subscription
+        : await stripe.subscriptions.retrieve(subscriptionId);
+    const firstItem = sub.items.data[0];
+    const priceId = firstItem?.price?.id;
+    const plan = priceId ? this.planFromPriceId(priceId) : 'pro';
+    const periodStart = firstItem?.current_period_start;
+    const periodEnd = firstItem?.current_period_end;
+    await this.prisma.subscription.upsert({
+      where: { userId },
+      create: {
+        userId,
+        plan,
+        status: 'active',
+        stripeCustomerId: session.customer as string,
+        stripeSubscriptionId: subscriptionId,
+        currentPeriodStart: periodStart ? new Date(periodStart * 1000) : null,
+        currentPeriodEnd: periodEnd ? new Date(periodEnd * 1000) : null,
+      },
+      update: {
+        plan,
+        status: 'active',
+        stripeCustomerId: session.customer as string,
+        stripeSubscriptionId: subscriptionId,
+        currentPeriodStart: periodStart ? new Date(periodStart * 1000) : null,
+        currentPeriodEnd: periodEnd ? new Date(periodEnd * 1000) : null,
+        cancelAtPeriodEnd: false,
+      },
+    });
+  }
+
   /** Handle Stripe webhook (checkout.session.completed, customer.subscription.updated/deleted). */
   async handleWebhook(rawBody: Buffer, signature: string | undefined): Promise<void> {
     const stripe = this.ensureStripe();
