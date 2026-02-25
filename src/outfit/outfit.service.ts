@@ -379,10 +379,10 @@ export class OutfitService {
     }> = [];
 
     for (const plan of dayPlans) {
-      const clothingItems = plan.wardrobeItemIds
-        .map((id) => wardrobeById.get(id))
-        .filter((item): item is WardrobeItemRow => item != null)
-        .map((item) => ({ id: item.id, category: item.category, imageUrl: item.imageUrl }));
+      const clothingItems = plan.wardrobeItemIds.flatMap((id) => {
+        const item = wardrobeById.get(id);
+        return item != null ? [{ id: item.id, category: item.category, imageUrl: item.imageUrl }] : [];
+      });
 
       let imageUrl: string | null = null;
       let promptVersion: string | null = null;
