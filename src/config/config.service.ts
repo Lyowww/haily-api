@@ -129,6 +129,34 @@ export class ConfigService {
     return this.env.JWT_SECRET;
   }
 
+  get stripeSecretKey(): Env['STRIPE_SECRET_KEY'] {
+    return this.env.STRIPE_SECRET_KEY;
+  }
+
+  get stripeWebhookSecret(): Env['STRIPE_WEBHOOK_SECRET'] {
+    return this.env.STRIPE_WEBHOOK_SECRET;
+  }
+
+  get stripeSuccessUrl(): Env['STRIPE_SUCCESS_URL'] {
+    return this.env.STRIPE_SUCCESS_URL;
+  }
+
+  get stripeCancelUrl(): Env['STRIPE_CANCEL_URL'] {
+    return this.env.STRIPE_CANCEL_URL;
+  }
+
+  get stripeSuccessRedirect(): Env['STRIPE_SUCCESS_REDIRECT'] {
+    return this.env.STRIPE_SUCCESS_REDIRECT;
+  }
+
+  get stripeCancelRedirect(): Env['STRIPE_CANCEL_REDIRECT'] {
+    return this.env.STRIPE_CANCEL_REDIRECT;
+  }
+
+  get isStripeConfigured(): boolean {
+    return !!(this.env.STRIPE_SECRET_KEY && this.env.STRIPE_SECRET_KEY.length > 0);
+  }
+
   get isDevelopment(): boolean {
     return this.env.NODE_ENV === 'development';
   }

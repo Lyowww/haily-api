@@ -58,6 +58,14 @@ export const envSchema = z.object({
   // JWT
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
 
+  // Stripe (optional – required for billing; webhook secret required for POST /billing/webhook)
+  STRIPE_SECRET_KEY: z.string().optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  STRIPE_SUCCESS_URL: z.string().url().optional(),
+  STRIPE_CANCEL_URL: z.string().url().optional(),
+  STRIPE_SUCCESS_REDIRECT: z.string().optional(),
+  STRIPE_CANCEL_REDIRECT: z.string().optional(),
+
   // Mail (optional – for account verification, forgot password, etc.)
   MAIL_HOST: z.string().optional(),
   MAIL_PORT: z.coerce.number().int().positive().optional(),

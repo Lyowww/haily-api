@@ -4,13 +4,19 @@ import { ParseIntPipe } from '@nestjs/common/pipes';
 import { OutfitService } from './outfit.service';
 import { GenerateOutfitDto, SaveOutfitDto, GetWeekPlanQueryDto, GenerateWeekPlanDto, RegenerateDayDto } from './dto';
 import { JwtAuthGuard } from '../auth';
+import { SubscriptionGuard } from '../billing/subscription.guard';
+import { SubscriptionCheck } from '../billing/subscription-check.decorator';
+import { BillingService } from '../billing/billing.service';
 
 @ApiTags('Outfit')
 @Controller('outfit')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class OutfitController {
-  constructor(private readonly outfitService: OutfitService) {}
+  constructor(
+    private readonly outfitService: OutfitService,
+    private readonly billingService: BillingService,
+  ) {}
 
   @Post('generate')
   @ApiOperation({ summary: 'Generate outfit suggestions based on user photo' })
@@ -63,6 +69,8 @@ export class OutfitController {
   }
 
   @Post('weekly/generate')
+  @UseGuards(SubscriptionGuard)
+  @SubscriptionCheck('weekly')
   @ApiOperation({
     summary: 'Generate AI outfit images for the full week (7 days)',
     description:
@@ -74,8 +82,11 @@ export class OutfitController {
     description: 'Week plan with AI-generated outfit image per day. Body: { weekStartDate, days: [{ dayIndex, weekday, imageUrl, outfit, weather }] }',
   })
   @ApiResponse({ status: 400, description: 'Invalid weekStartDate or missing profile image' })
+  @ApiResponse({ status: 403, description: 'Subscription required or weekly generation limit reached' })
   async generateWeekPlan(@Request() req: any, @Body() body: GenerateWeekPlanDto) {
-    return this.outfitService.generateWeekPlan(req.user.userId, body);
+    const result = await this.outfitService.generateWeekPlan(req.user.userId, body);
+    await this.billingService.incrementWeeklyGenerations(req.user.userId);
+    return result;
   }
 
   @Post('weekly/:dayIndex/regenerate')

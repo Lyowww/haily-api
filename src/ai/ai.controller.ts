@@ -1,7 +1,10 @@
-import { Controller, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, Request } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse, ApiProperty } from '@nestjs/swagger';
 import { AIService } from './ai.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { SubscriptionGuard } from '../billing/subscription.guard';
+import { SubscriptionCheck } from '../billing/subscription-check.decorator';
+import { BillingService } from '../billing/billing.service';
 import { AnalyzeWardrobeDto } from './dto/analyze-wardrobe.dto';
 import { IsString, IsArray, IsOptional, ValidateNested, IsNumber, IsIn } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -86,10 +89,15 @@ class GenerateOutfitDto {
 @Controller('ai')
 @UseGuards(JwtAuthGuard)
 export class AIController {
-  constructor(private readonly aiService: AIService) {}
+  constructor(
+    private readonly aiService: AIService,
+    private readonly billingService: BillingService,
+  ) {}
 
   @Post('generate-outfit')
-  @ApiOperation({ summary: 'Generate AI outfit image' })
+  @UseGuards(SubscriptionGuard)
+  @SubscriptionCheck('aiAndVirtualTryon')
+  @ApiOperation({ summary: 'Generate AI outfit image (virtual try-on)' })
   @ApiResponse({
     status: 200,
     description: 'Outfit image generated successfully',
@@ -100,8 +108,15 @@ export class AIController {
       },
     },
   })
-  async generateOutfit(@Body() dto: GenerateOutfitDto) {
-    return this.aiService.generateOutfitImage(dto);
+  @ApiResponse({ status: 403, description: 'Subscription required or limit reached' })
+  async generateOutfit(@Request() req: any, @Body() dto: GenerateOutfitDto) {
+    const result = await this.aiService.generateOutfitImage(dto);
+    const userId = req.user?.id ?? req.user?.userId;
+    if (userId) {
+      await this.billingService.incrementAiGenerations(userId);
+      await this.billingService.incrementVirtualTryon(userId);
+    }
+    return result;
   }
 
   @Post('analyze-wardrobe')

@@ -36,6 +36,7 @@ model User {
   renderJobs          RenderJob[]
   creditsLedger       CreditsLedger[]
   subscriptions       Subscription[]
+  usageRecords        Usage[]
   eventsAnalytics     EventAnalytics[]
   notificationSettings NotificationSettings?
   notifications       Notification[]
@@ -212,6 +213,24 @@ model Subscription {
   @@index([stripeCustomerId])
   @@index([stripeSubscriptionId])
   @@map("subscriptions")
+}
+
+// Usage per user per month (for limits); reset monthly via cron
+model Usage {
+  id                     String   @id @default(uuid())
+  userId                 String   @map("user_id")
+  month                  String   // "YYYY-MM"
+  aiGenerationsCount     Int      @default(0) @map("ai_generations_count")
+  virtualTryonCount      Int      @default(0) @map("virtual_tryon_count")
+  weeklyGenerationCount  Int      @default(0) @map("weekly_generation_count")
+  createdAt              DateTime @default(now()) @map("created_at")
+
+  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, month])
+  @@index([userId])
+  @@index([month])
+  @@map("usage")
 }
 
 // Analytics events

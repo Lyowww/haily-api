@@ -5,9 +5,12 @@ import { AppModule } from './app.module';
 import { ConfigService } from './config';
 import helmet from 'helmet';
 import type { INestApplication } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 
 async function createApp(): Promise<INestApplication> {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    rawBody: true, // required for Stripe webhook signature verification
+  });
 
   const configService = app.get(ConfigService);
 
