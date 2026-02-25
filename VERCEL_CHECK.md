@@ -75,3 +75,23 @@ Most routes require a JWT. To test:
 | Me (with token)    | `GET /api/auth/me`           | 200, user object            |
 
 If all of these work, your backend deployment is working.
+
+---
+
+## 6. Database migrations
+
+After deploying schema changes, run migrations against your **production** database (e.g. Neon). Otherwise you may see errors like `The column "outfits.category" does not exist`.
+
+**Option A – Prisma (recommended)**  
+From your machine with `DATABASE_URL` pointing at production:
+
+```bash
+npx prisma migrate deploy
+```
+
+**Option B – Run SQL manually**  
+If you added the `outfits.category` column in code, run this once on your DB:
+
+```sql
+ALTER TABLE "outfits" ADD COLUMN IF NOT EXISTS "category" TEXT;
+```
