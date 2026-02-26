@@ -20,7 +20,7 @@ import { HelpCenterService } from './help-center.service';
   ],
   controllers: [HelpCenterController],
   providers: [HelpCenterService, HelpCenterGateway],
-  exports: [HelpCenterService],
+  exports: [HelpCenterService, HelpCenterGateway],
 })
 export class HelpCenterModule {}
 

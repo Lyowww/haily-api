@@ -76,6 +76,9 @@ export const envSchema = z.object({
   MAIL_USER: z.string().optional(),
   MAIL_PASSWORD: z.string().optional(),
   MAIL_FROM: z.string().optional(),
+
+  // Admin dashboard (optional – when set, /api/admin-dashboard is protected by this password)
+  ADMIN_PASSWORD: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

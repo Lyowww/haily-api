@@ -191,5 +191,10 @@ export class ConfigService {
   get isMailConfigured(): boolean {
     return !!(this.env.MAIL_HOST && this.env.MAIL_PORT);
   }
+
+  /** Admin dashboard password (from .env). When set, admin login uses this. */
+  get adminPassword(): string | undefined {
+    return this.env.ADMIN_PASSWORD;
+  }
 }
 

@@ -4,12 +4,14 @@
 
 - `STRIPE_SECRET_KEY` – Stripe secret key (required for checkout, webhook, cancel, restore).
 - `STRIPE_WEBHOOK_SECRET` – Stripe webhook signing secret (required for `POST /api/billing/webhook`).
-- `STRIPE_SUCCESS_URL` – Full URL Stripe redirects to after successful payment (e.g. `https://your-api.vercel.app/api/billing/payment-success`). Required for checkout.
+- `STRIPE_SUCCESS_URL` – Full URL Stripe redirects to after successful payment. **Must include** `?session_id={CHECKOUT_SESSION_ID}` so the success page can sync the subscription (e.g. `https://your-api.vercel.app/api/billing/payment-success?session_id={CHECKOUT_SESSION_ID}`). Required for checkout.
 - `STRIPE_CANCEL_URL` – Full URL Stripe redirects to when user cancels (e.g. `https://your-api.vercel.app/api/billing/payment-cancel`). Required for checkout.
 - `STRIPE_SUCCESS_REDIRECT` – (Optional) Where the success page redirects the user (e.g. `haily://payment-success`). Defaults to `haily://payment-success`.
 - `STRIPE_CANCEL_REDIRECT` – (Optional) Where the cancel page redirects the user (e.g. `haily://payment-cancel`). Defaults to `haily://payment-cancel`.
 
 If Stripe keys are not set, billing endpoints that call Stripe will return 400 "Billing is not configured." The backend serves `GET /api/billing/payment-success` and `GET /api/billing/payment-cancel`, which respond with a 302 redirect to the app deep link (or the optional redirect URLs above).
+
+**Stripe Dashboard setup (webhook + success URL):** see [STRIPE_SETUP.md](./STRIPE_SETUP.md) for step-by-step configuration so subscription registration works (webhook endpoint, events, and correct `STRIPE_SUCCESS_URL` with `session_id={CHECKOUT_SESSION_ID}`).
 
 ## Endpoints
 

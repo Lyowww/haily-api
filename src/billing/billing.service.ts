@@ -211,7 +211,7 @@ export class BillingService {
     const cancelUrl = this.config.stripeCancelUrl;
     if (!successUrl || !cancelUrl) {
       throw new BadRequestException(
-        'Stripe checkout requires STRIPE_SUCCESS_URL and STRIPE_CANCEL_URL (e.g. https://your-api.vercel.app/api/payment-success)',
+        'Stripe checkout requires STRIPE_SUCCESS_URL and STRIPE_CANCEL_URL. Success URL must include ?session_id={CHECKOUT_SESSION_ID} (see STRIPE_SETUP.md)',
       );
     }
 
