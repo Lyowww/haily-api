@@ -99,6 +99,28 @@ export class BillingService {
     return PRICE_TO_PLAN[priceId] ?? 'pro';
   }
 
+  /** Trial duration in months for new users. */
+  private static readonly PRO_TRIAL_MONTHS = 3;
+
+  /**
+   * Create a 3-month Pro free trial for a user (e.g. on registration).
+   * No Stripe; subscription is active until currentPeriodEnd.
+   */
+  async createProTrial(userId: string): Promise<void> {
+    const now = new Date();
+    const periodEnd = new Date(now);
+    periodEnd.setMonth(periodEnd.getMonth() + BillingService.PRO_TRIAL_MONTHS);
+    await this.prisma.subscription.create({
+      data: {
+        userId,
+        plan: 'pro',
+        status: 'active',
+        currentPeriodStart: now,
+        currentPeriodEnd: periodEnd,
+      },
+    });
+  }
+
   /**
    * Check if user has active subscription and usage within limits.
    * Throws if subscription required or limit exceeded.
@@ -135,12 +157,22 @@ export class BillingService {
 
   /** Get subscription status and remaining limits for the user. */
   async getSubscriptionStatus(userId: string): Promise<SubscriptionStatus> {
-    const subscription = await this.prisma.subscription.findUnique({
+    let subscription = await this.prisma.subscription.findUnique({
       where: { userId },
     });
     const plan = subscription?.plan ?? 'starter';
     const limits = this.getPlanLimits(plan);
-    const isActive = subscription?.status === 'active'; // still active when cancel_at_period_end until period end
+    let isActive = subscription?.status === 'active'; // still active when cancel_at_period_end until period end
+
+    // Trial/period-based: if currentPeriodEnd is in the past, treat as expired
+    if (subscription?.currentPeriodEnd && new Date() > subscription.currentPeriodEnd && isActive) {
+      await this.prisma.subscription.update({
+        where: { userId },
+        data: { status: 'expired' },
+      });
+      subscription = { ...subscription, status: 'expired' };
+      isActive = false;
+    }
 
     if (!subscription || !isActive) {
       return {

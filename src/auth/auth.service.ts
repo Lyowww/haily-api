@@ -9,6 +9,7 @@ import * as bcrypt from 'bcryptjs';
 import { randomInt } from 'crypto';
 import { PrismaService } from '../prisma';
 import { EmailService } from '../email';
+import { BillingService } from '../billing/billing.service';
 import {
   RegisterDto,
   LoginDto,
@@ -75,6 +76,7 @@ export class AuthService {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private emailService: EmailService,
+    private billingService: BillingService,
   ) {}
 
   async register(registerDto: RegisterDto) {
@@ -119,6 +121,9 @@ export class AuthService {
         emailVerifiedAt: true,
       },
     });
+
+    // Grant 3-month Pro free trial
+    await this.billingService.createProTrial(user.id);
 
     // Send no-reply welcome email with verification code
     await this.emailService.sendWelcomeNoReply(email, emailVerificationCode);
