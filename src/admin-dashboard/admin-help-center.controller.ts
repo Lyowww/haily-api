@@ -85,9 +85,10 @@ export class AdminHelpCenterController {
   @ApiResponse({ status: 201, description: 'Message created' })
   async sendSupportMessage(
     @Param('userId') userId: string,
-    @Body() body: { text: string },
+    @Body() body: { text?: string; content?: string },
   ) {
-    const text = typeof body?.text === 'string' ? body.text.trim() : '';
+    const text =
+      (typeof body?.text === 'string' ? body.text : typeof body?.content === 'string' ? body.content : '')?.trim() ?? '';
     if (!text || text.length > 2000) {
       return { error: 'Text required, max 2000 characters' };
     }
