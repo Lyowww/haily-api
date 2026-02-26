@@ -7,7 +7,6 @@ var __esDecorate = (this && this.__esDecorate) || function (ctor, descriptorIn, 
     var _, done = false;
     for (var i = decorators.length - 1; i >= 0; i--) {
         var context = {};
-        
         for (var p in contextIn) context[p] = p === "access" ? {} : contextIn[p];
         for (var p in contextIn.access) context.access[p] = contextIn.access[p];
         context.addInitializer = function (f) { if (done) throw new TypeError("Cannot add initializers after decoration has completed"); extraInitializers.push(accept(f || null)); };
