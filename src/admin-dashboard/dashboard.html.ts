@@ -121,6 +121,7 @@ export function getDashboardHtml(): string {
     </div>
   </div>
 
+  <script src="/socket.io/socket.io.js"></script>
   <script>
     const BASE = '${base}';
     const API_BASE = window.location.origin + BASE.replace('/admin-dashboard', '');
@@ -242,14 +243,25 @@ export function getDashboardHtml(): string {
 
     function connectAdminSocket(userId) {
       const token = getToken();
+      if (!token) return;
+      if (!window.io) { console.warn('Socket.IO not loaded'); return; }
       const ns = '/admin-dashboard-socket';
-      const socketUrl = window.location.origin;
-      const socket = window.io ? window.io(socketUrl, { path: '/socket.io', auth: { token }, transports: ['websocket', 'polling'] }) : null;
-      if (!socket) { console.warn('Socket.IO not loaded'); return; }
+      const socketUrl = window.location.origin + ns;
+      const socket = window.io(socketUrl, { path: '/socket.io', auth: { token }, transports: ['websocket', 'polling'] });
       adminSocket = socket;
-      socket.emit('admin:subscribe_user', { userId });
       subscribedUserId = userId;
-      socket.on('help_center:message', appendMessage);
+      socket.on('connect', () => {
+        socket.emit('admin:subscribe_user', { userId });
+      });
+      socket.on('connect_error', (err) => {
+        console.error('Admin socket connection failed', err.message);
+      });
+      socket.on('disconnect', (reason) => {
+        if (reason === 'io server disconnect') console.warn('Admin socket disconnected by server');
+      });
+      socket.on('help_center:message', (m) => {
+        if (selectedConversation && selectedConversation.userId === subscribedUserId) appendMessage(m);
+      });
       socket.on('admin:error', (err) => console.error('Admin socket error', err));
     }
 
@@ -392,7 +404,6 @@ export function getDashboardHtml(): string {
       return div.innerHTML;
     }
   </script>
-  <script src="/socket.io/socket.io.js"></script>
 </body>
 </html>`;
 }
