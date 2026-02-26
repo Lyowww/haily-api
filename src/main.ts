@@ -21,19 +21,8 @@ async function createApp(): Promise<INestApplication> {
     }),
   );
 
-  const allowedOrigins = configService.corsOrigins;
   app.enableCors({
-    origin: (origin, callback) => {
-      if (!origin) {
-        callback(null, true);
-        return;
-      }
-      if (allowedOrigins.length === 0 && !configService.isProduction) {
-        callback(null, true);
-        return;
-      }
-      callback(null, allowedOrigins.includes(origin));
-    },
+    origin: true, // allow any origin (reflects request origin)
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
