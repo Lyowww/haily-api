@@ -12,12 +12,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { Public } from '../auth/public.decorator';
 import { AdminAuthGuard } from './admin-auth.guard';
 import { PrismaService } from '../prisma';
 import { ADMIN_TABLE_NAMES, type AdminTableName } from './admin-tables.config';
 
 @ApiTags('Admin Dashboard – Tables')
 @Controller('admin-dashboard/tables')
+@Public()
 @UseGuards(AdminAuthGuard)
 @ApiBearerAuth('admin')
 export class AdminTablesController {

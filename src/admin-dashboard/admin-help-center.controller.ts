@@ -1,11 +1,13 @@
 import { Controller, Get, Post, Param, Body, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { Public } from '../auth/public.decorator';
 import { AdminAuthGuard } from './admin-auth.guard';
 import { HelpCenterService } from '../help-center/help-center.service';
 import { PrismaService } from '../prisma';
 
 @ApiTags('Admin Dashboard – Help Center')
 @Controller('admin-dashboard/help-center')
+@Public()
 @UseGuards(AdminAuthGuard)
 @ApiBearerAuth('admin')
 export class AdminHelpCenterController {
