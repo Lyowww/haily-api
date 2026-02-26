@@ -4,14 +4,12 @@ import {
   Get,
   Body,
   Res,
-  UseGuards,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { Response } from 'express';
+import { Public } from '../auth/public.decorator';
 import { AdminAuthService } from './admin-auth.service';
-import { AdminAuthGuard } from './admin-auth.guard';
-import { AdminPublic } from './admin-public.decorator';
 import { AdminLoginDto } from './dto/login.dto';
 import { getDashboardHtml } from './dashboard.html';
 
@@ -20,7 +18,8 @@ import { getDashboardHtml } from './dashboard.html';
 export class AdminDashboardController {
   constructor(private adminAuthService: AdminAuthService) {}
 
-  @AdminPublic()
+  /** Public so global JwtAuthGuard does not require app JWT; we validate admin password here. */
+  @Public()
   @Post('login')
   @ApiOperation({ summary: 'Admin login with password from .env' })
   @ApiResponse({ status: 201, description: 'Returns JWT for admin API' })
@@ -32,7 +31,7 @@ export class AdminDashboardController {
     return this.adminAuthService.login(dto.password);
   }
 
-  @AdminPublic()
+  @Public()
   @Get()
   @ApiOperation({ summary: 'Serve admin dashboard HTML (login form when not authenticated)' })
   @ApiResponse({ status: 200, description: 'Dashboard single-page app' })
