@@ -2,11 +2,14 @@ import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { ConfigService } from '../config';
 import { PrismaService } from '../prisma/prisma.service';
 import Stripe from 'stripe';
-import { PLAN_LIMITS, PRICE_TO_PLAN } from './billing.constants';
+import { PLAN_LIMITS, PRICE_TO_PLAN, APPLE_PRODUCT_TO_PLAN } from './billing.constants';
+import { AppleIapService, AppleReceiptSubscription } from './apple-iap.service';
 
 export interface SubscriptionStatus {
   plan: string;
   status: string;
+  /** Source of the subscription: "ios" (Apple IAP) or "android" / "web" (Stripe). */
+  platform: string | null;
   /** Billing period start date (YYYY-MM-DD). */
   currentPeriodStart: string | null;
   /** Billing period end date (YYYY-MM-DD); access until this date when active. */
@@ -28,6 +31,7 @@ export class BillingService {
   constructor(
     private config: ConfigService,
     private prisma: PrismaService,
+    private appleIap: AppleIapService,
   ) {
     if (this.config.isStripeConfigured) {
       this.stripe = new Stripe(this.config.stripeSecretKey!);
@@ -178,6 +182,7 @@ export class BillingService {
       return {
         plan: 'starter',
         status: subscription?.status ?? 'inactive',
+        platform: subscription?.platform ?? null,
         currentPeriodStart: subscription?.currentPeriodStart?.toISOString().slice(0, 10) ?? null,
         currentPeriodEnd: subscription?.currentPeriodEnd?.toISOString().slice(0, 10) ?? null,
         cancelAtPeriodEnd: subscription?.cancelAtPeriodEnd ?? false,
@@ -200,6 +205,7 @@ export class BillingService {
     return {
       plan: subscription.plan,
       status: subscription.status,
+      platform: subscription.platform ?? null,
       currentPeriodStart: subscription.currentPeriodStart?.toISOString().slice(0, 10) ?? null,
       currentPeriodEnd: subscription.currentPeriodEnd?.toISOString().slice(0, 10) ?? null,
       cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
@@ -209,6 +215,320 @@ export class BillingService {
         weeklyRemaining,
       },
     };
+  }
+
+  /**
+   * Verify a purchase and update subscription + purchase record.
+   * - iOS: pass receiptData (base64); we validate with Apple and upsert subscription.
+   * - Android/web: pass sessionId (Stripe checkout session); we sync from Stripe.
+   */
+  async verifyPurchase(
+    userId: string,
+    platform: 'ios' | 'android' | 'web',
+    payload: { receiptData?: string; sessionId?: string },
+  ): Promise<{ ok: boolean; plan?: string; message?: string }> {
+    if (platform === 'ios') {
+      const receiptData = payload.receiptData;
+      if (!receiptData || typeof receiptData !== 'string') {
+        throw new BadRequestException('receiptData is required for iOS');
+      }
+      const result = await this.appleIap.validateReceipt(receiptData);
+      if (!result) {
+        return { ok: false, message: 'Invalid or expired receipt' };
+      }
+      await this.upsertSubscriptionFromApple(userId, result, receiptData);
+      return { ok: true, plan: result.plan };
+    }
+
+    if (platform === 'android' || platform === 'web') {
+      const sessionId = payload.sessionId;
+      if (!sessionId || typeof sessionId !== 'string') {
+        throw new BadRequestException('sessionId is required for Android/web (Stripe)');
+      }
+      await this.syncSubscriptionFromCheckoutSession(sessionId);
+      const sub = await this.prisma.subscription.findUnique({ where: { userId } });
+      return { ok: true, plan: sub?.plan ?? undefined };
+    }
+
+    throw new BadRequestException('platform must be ios, android, or web');
+  }
+
+  /**
+   * Update or create subscription and purchase record from validated Apple receipt.
+   */
+  private async upsertSubscriptionFromApple(
+    userId: string,
+    result: AppleReceiptSubscription,
+    receiptData: string,
+  ): Promise<void> {
+    const periodStart = result.purchaseDate ? new Date(result.purchaseDate) : null;
+    const periodEnd = result.expirationDate ? new Date(result.expirationDate) : null;
+    const status = result.isActive ? 'active' : 'expired';
+
+    const sub = await this.prisma.subscription.upsert({
+      where: { userId },
+      create: {
+        userId,
+        plan: result.plan,
+        status,
+        platform: 'ios',
+        appleOriginalTransactionId: result.originalTransactionId,
+        appleProductId: result.productId,
+        appleReceiptData: receiptData,
+        currentPeriodStart: periodStart,
+        currentPeriodEnd: periodEnd,
+      },
+      update: {
+        plan: result.plan,
+        status,
+        platform: 'ios',
+        appleOriginalTransactionId: result.originalTransactionId,
+        appleProductId: result.productId,
+        appleReceiptData: receiptData,
+        currentPeriodStart: periodStart,
+        currentPeriodEnd: periodEnd,
+      },
+    });
+
+    await this.recordPurchase({
+      userId,
+      subscriptionId: sub.id,
+      platform: 'ios',
+      externalId: result.originalTransactionId,
+      productId: result.productId,
+      plan: result.plan,
+      status,
+      periodStart,
+      periodEnd,
+    });
+  }
+
+  /**
+   * Record a purchase in the audit table (idempotent by userId + platform + externalId).
+   */
+  private async recordPurchase(params: {
+    userId: string;
+    subscriptionId?: string | null;
+    platform: string;
+    externalId: string;
+    productId: string;
+    plan: string;
+    status: string;
+    amountCents?: number | null;
+    currency?: string | null;
+    periodStart?: Date | null;
+    periodEnd?: Date | null;
+    metadata?: string | null;
+  }): Promise<void> {
+    await this.prisma.purchase.upsert({
+      where: {
+        userId_platform_externalId: {
+          userId: params.userId,
+          platform: params.platform,
+          externalId: params.externalId,
+        },
+      },
+      create: {
+        userId: params.userId,
+        subscriptionId: params.subscriptionId,
+        platform: params.platform,
+        externalId: params.externalId,
+        productId: params.productId,
+        plan: params.plan,
+        status: params.status,
+        amountCents: params.amountCents,
+        currency: params.currency ?? 'usd',
+        periodStart: params.periodStart,
+        periodEnd: params.periodEnd,
+        metadata: params.metadata,
+      },
+      update: {
+        subscriptionId: params.subscriptionId,
+        plan: params.plan,
+        status: params.status,
+        periodStart: params.periodStart,
+        periodEnd: params.periodEnd,
+      },
+    });
+  }
+
+  /**
+   * Restore purchases: for iOS, validate the provided receipt and sync subscription;
+   * for Stripe, re-sync from existing Stripe subscription if any.
+   * Call this when user reinstalls the app or switches devices.
+   */
+  async restorePurchases(
+    userId: string,
+    options?: { platform?: 'ios' | 'android' | 'web'; receiptData?: string },
+  ): Promise<{ ok: boolean; plan?: string; message?: string }> {
+    const platform = options?.platform;
+
+    if (platform === 'ios' || !platform) {
+      const receiptData = options?.receiptData;
+      if (receiptData) {
+        const result = await this.appleIap.validateReceipt(receiptData);
+        if (result) {
+          await this.upsertSubscriptionFromApple(userId, result, receiptData);
+          return { ok: true, plan: result.plan };
+        }
+      }
+      const sub = await this.prisma.subscription.findUnique({ where: { userId } });
+      if (sub?.platform === 'ios' && sub?.appleReceiptData) {
+        const result = await this.appleIap.validateReceipt(sub.appleReceiptData);
+        if (result) {
+          await this.upsertSubscriptionFromApple(userId, result, sub.appleReceiptData);
+          return { ok: true, plan: result.plan };
+        }
+      }
+      if (platform === 'ios') {
+        return { ok: false, message: 'No valid Apple receipt to restore' };
+      }
+    }
+
+    if (platform === 'android' || platform === 'web' || !platform) {
+      const sub = await this.prisma.subscription.findUnique({ where: { userId } });
+      if (sub?.stripeSubscriptionId) {
+        try {
+          const stripe = this.ensureStripe();
+          const s = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
+          const firstItem = s.items.data[0];
+          const rawPrice = firstItem?.price;
+          const priceId = typeof rawPrice === 'string' ? rawPrice : rawPrice?.id;
+          const plan = priceId ? this.planFromPriceId(priceId) : 'pro';
+          const periodStart = firstItem?.current_period_start;
+          const periodEnd = firstItem?.current_period_end;
+          await this.prisma.subscription.update({
+            where: { userId },
+            data: {
+              plan,
+              status: s.status === 'active' ? 'active' : s.status,
+              currentPeriodStart: periodStart ? new Date(periodStart * 1000) : undefined,
+              currentPeriodEnd: periodEnd ? new Date(periodEnd * 1000) : undefined,
+              cancelAtPeriodEnd: s.cancel_at_period_end ?? false,
+            },
+          });
+          return { ok: true, plan };
+        } catch (e) {
+          this.logger.warn(`Restore Stripe subscription failed: ${(e as Error).message}`);
+        }
+      }
+      if (platform === 'android' || platform === 'web') {
+        return { ok: false, message: 'No Stripe subscription found to restore' };
+      }
+    }
+
+    return { ok: false, message: 'Nothing to restore' };
+  }
+
+  /**
+   * Optional: return available products (Apple product IDs and Stripe price IDs) for the app.
+   */
+  async getProducts(): Promise<{
+    apple: { productId: string; plan: string }[];
+    stripe: { priceId: string; plan: string }[];
+  }> {
+    const apple = Object.entries(APPLE_PRODUCT_TO_PLAN).map(([productId, plan]) => ({
+      productId,
+      plan,
+    }));
+    const stripe = Object.entries(PRICE_TO_PLAN).map(([priceId, plan]) => ({
+      priceId,
+      plan,
+    }));
+    return { apple, stripe };
+  }
+
+  /**
+   * Handle Apple App Store Server Notifications (V2 signed payload).
+   * Configure the URL in App Store Connect → App → App Information → App Store Server Notifications.
+   * Payload is a signed JWS; we decode and handle subscription lifecycle (renewal, cancellation, etc.).
+   */
+  async handleAppleWebhook(signedPayload: string): Promise<void> {
+    if (!this.config.isAppleIapConfigured) {
+      this.logger.warn('Apple IAP not configured; ignoring Apple webhook.');
+      return;
+    }
+    // Decode JWS: payload is base64url. We only need the payload body for notificationType and subtype.
+    try {
+      const parts = signedPayload.split('.');
+      if (parts.length !== 3) {
+        this.logger.warn('Apple webhook: invalid JWS format');
+        return;
+      }
+      const payloadJson = Buffer.from(parts[1], 'base64url').toString('utf8');
+      const payload = JSON.parse(payloadJson) as {
+        notificationType?: string;
+        subtype?: string;
+        data?: { appAppleId?: number; bundleId?: string; bundleVersion?: string; environment?: string; signedTransactionInfo?: string; signedRenewalInfo?: string };
+      };
+      const notificationType = payload.notificationType;
+      const data = payload.data;
+      if (!data?.signedTransactionInfo) {
+        this.logger.debug('Apple webhook: no signedTransactionInfo');
+        return;
+      }
+      const txParts = (data.signedTransactionInfo as string).split('.');
+      const txPayload = txParts.length === 3 ? JSON.parse(Buffer.from(txParts[1], 'base64url').toString('utf8')) as { originalTransactionId?: string; productId?: string; expiresDate?: number } : null;
+      if (!txPayload?.originalTransactionId) {
+        return;
+      }
+      const originalTransactionId = txPayload.originalTransactionId;
+      const productId = txPayload.productId;
+      const expiresDate = txPayload.expiresDate;
+      if (!originalTransactionId || !productId) {
+        this.logger.debug('Apple webhook: missing originalTransactionId or productId');
+        return;
+      }
+
+      const purchase = await this.prisma.purchase.findFirst({
+        where: { platform: 'ios', externalId: originalTransactionId },
+        include: { user: true },
+      });
+      if (!purchase?.user) {
+        this.logger.debug(`Apple webhook: no purchase found for originalTransactionId=${originalTransactionId}`);
+        return;
+      }
+      const userId = purchase.userId;
+      const plan = this.appleIap.productIdToPlan(productId);
+
+      if (notificationType === 'SUBSCRIBED' || notificationType === 'DID_RENEW' || (notificationType === 'DID_CHANGE_RENEWAL_PREF' && payload.subtype === 'UPGRADE')) {
+        await this.prisma.subscription.upsert({
+          where: { userId },
+          create: {
+            userId,
+            plan,
+            status: 'active',
+            platform: 'ios',
+            appleOriginalTransactionId: originalTransactionId,
+            appleProductId: productId,
+            currentPeriodEnd: expiresDate ? new Date(expiresDate) : null,
+          },
+          update: {
+            plan,
+            status: 'active',
+            appleProductId: productId,
+            currentPeriodEnd: expiresDate ? new Date(expiresDate) : null,
+          },
+        });
+        await this.prisma.purchase.updateMany({
+          where: { userId, platform: 'ios', externalId: originalTransactionId },
+          data: { status: 'active', periodEnd: expiresDate ? new Date(expiresDate) : undefined },
+        });
+        this.logger.log(`Apple webhook: updated subscription for user ${userId} (${notificationType})`);
+      } else if (notificationType === 'EXPIRED' || notificationType === 'REVOKE' || notificationType === 'REFUND' || (notificationType === 'DID_FAIL_TO_RENEW' && payload.subtype === 'GRACE_PERIOD_EXPIRED')) {
+        await this.prisma.subscription.updateMany({
+          where: { userId },
+          data: { status: 'expired' },
+        });
+        await this.prisma.purchase.updateMany({
+          where: { userId, platform: 'ios', externalId: originalTransactionId },
+          data: { status: 'expired' },
+        });
+        this.logger.log(`Apple webhook: expired/revoked subscription for user ${userId} (${notificationType})`);
+      }
+    } catch (err) {
+      this.logger.warn(`Apple webhook parse/process error: ${(err as Error).message}`);
+    }
   }
 
   /** Create Stripe checkout session; create customer if needed. */
@@ -233,6 +553,7 @@ export class BillingService {
           userId,
           plan: 'starter',
           status: 'inactive',
+          platform: 'android',
           stripeCustomerId: customerId,
         },
         update: { stripeCustomerId: customerId },
@@ -313,12 +634,14 @@ export class BillingService {
     const periodStart = firstItem?.current_period_start;
     const periodEnd = firstItem?.current_period_end;
 
+    const platformStripe = 'android'; // or 'web' if you detect web checkout via metadata
     await this.prisma.subscription.upsert({
       where: { userId },
       create: {
         userId,
         plan,
         status: 'active',
+        platform: platformStripe,
         stripeCustomerId: customerId,
         stripeSubscriptionId: subscriptionId,
         currentPeriodStart: periodStart != null ? new Date(periodStart * 1000) : null,
@@ -327,6 +650,7 @@ export class BillingService {
       update: {
         plan,
         status: 'active',
+        platform: platformStripe,
         stripeCustomerId: customerId,
         stripeSubscriptionId: subscriptionId,
         currentPeriodStart: periodStart != null ? new Date(periodStart * 1000) : null,
@@ -386,6 +710,7 @@ export class BillingService {
             userId,
             plan,
             status: 'active',
+            platform: 'android',
             stripeCustomerId: customerId,
             stripeSubscriptionId: subscriptionId,
             currentPeriodStart: periodStart != null ? new Date(periodStart * 1000) : null,
@@ -394,6 +719,7 @@ export class BillingService {
           update: {
             plan,
             status: 'active',
+            platform: 'android',
             stripeCustomerId: customerId,
             stripeSubscriptionId: subscriptionId,
             currentPeriodStart: periodStart != null ? new Date(periodStart * 1000) : null,

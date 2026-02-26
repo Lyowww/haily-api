@@ -16,7 +16,7 @@ import {
 import { Response } from 'express';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { BillingService } from './billing.service';
-import { CreateCheckoutSessionDto } from './dto';
+import { CreateCheckoutSessionDto, VerifyPurchaseDto, RestorePurchasesDto } from './dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Public } from '../auth/public.decorator';
 import { ConfigService } from '../config';
@@ -181,14 +181,15 @@ export class BillingController {
   @Get('status')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Get user subscription info (plan, period start/end, limits)' })
+  @ApiOperation({ summary: 'Get user subscription info (plan, platform, period start/end, limits)' })
   @ApiResponse({
     status: 200,
-    description: 'Subscription info: plan, status, when period starts/ends, cancel flag, and remaining limits',
+    description: 'Subscription info: plan, status, platform (ios/android/web), when period starts/ends, cancel flag, and remaining limits',
     schema: {
       example: {
         plan: 'pro',
         status: 'active',
+        platform: 'ios',
         currentPeriodStart: '2026-03-01',
         currentPeriodEnd: '2026-04-01',
         cancelAtPeriodEnd: false,
@@ -202,10 +203,34 @@ export class BillingController {
     return this.billingService.getSubscriptionStatus(userId);
   }
 
+  @Post('verify-purchase')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Verify a purchase and update subscription (iOS receipt or Stripe session)' })
+  @ApiResponse({ status: 200, description: 'Purchase verified and subscription updated', schema: { properties: { ok: { type: 'boolean' }, plan: { type: 'string' }, message: { type: 'string' } } } })
+  @ApiResponse({ status: 400, description: 'Missing receiptData (iOS) or sessionId (Android/web)' })
+  async verifyPurchase(@Request() req: any, @Body() dto: VerifyPurchaseDto) {
+    const userId = req.user?.id ?? req.user?.userId;
+    if (!userId) throw new BadRequestException('User not found');
+    return this.billingService.verifyPurchase(userId, dto.platform, {
+      receiptData: dto.receiptData,
+      sessionId: dto.sessionId,
+    });
+  }
+
+  @Get('products')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Fetch available products (Apple product IDs and Stripe price IDs with plan mapping)' })
+  @ApiResponse({ status: 200, description: 'List of Apple and Stripe product/price IDs and their plan names' })
+  async getProducts() {
+    return this.billingService.getProducts();
+  }
+
   @Post('cancel')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Cancel subscription at period end' })
+  @ApiOperation({ summary: 'Cancel subscription at period end (Stripe only)' })
   @ApiResponse({ status: 200, description: 'Subscription will cancel at period end' })
   async cancel(@Request() req: any) {
     const userId = req.user?.id ?? req.user?.userId;
@@ -214,15 +239,42 @@ export class BillingController {
     return { ok: true };
   }
 
-  @Post('restore')
+  @Post('restore-subscription')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Restore subscription (remove cancel_at_period_end)' })
-  @ApiResponse({ status: 200, description: 'Subscription restored' })
-  async restore(@Request() req: any) {
+  @ApiOperation({ summary: 'Remove cancel_at_period_end (Stripe only; use after user undoes cancellation)' })
+  @ApiResponse({ status: 200, description: 'Subscription will renew again' })
+  async restoreSubscription(@Request() req: any) {
     const userId = req.user?.id ?? req.user?.userId;
     if (!userId) throw new BadRequestException('User not found');
     await this.billingService.restoreSubscription(userId);
+    return { ok: true };
+  }
+
+  @Post('restore')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Restore purchases (iOS: validate receipt; Stripe: re-sync subscription). Optional body: platform, receiptData.' })
+  @ApiResponse({ status: 200, description: 'Restore result', schema: { properties: { ok: { type: 'boolean' }, plan: { type: 'string' }, message: { type: 'string' } } } })
+  async restore(@Request() req: any, @Body() body: RestorePurchasesDto) {
+    const userId = req.user?.id ?? req.user?.userId;
+    if (!userId) throw new BadRequestException('User not found');
+    return this.billingService.restorePurchases(userId, {
+      platform: body?.platform,
+      receiptData: body?.receiptData,
+    });
+  }
+
+  @Post('webhook-apple')
+  @Public()
+  @ApiOperation({ summary: 'Apple App Store Server Notifications (V2). Set this URL in App Store Connect.' })
+  @ApiResponse({ status: 200, description: 'Notification processed' })
+  async webhookApple(@Body() body: { signedPayload?: string }) {
+    const signedPayload = body?.signedPayload ?? (body as any)?.signedPayload;
+    if (!signedPayload || typeof signedPayload !== 'string') {
+      throw new BadRequestException('signedPayload required');
+    }
+    await this.billingService.handleAppleWebhook(signedPayload);
     return { ok: true };
   }
 }

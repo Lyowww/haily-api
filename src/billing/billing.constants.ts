@@ -9,3 +9,11 @@ export const PLAN_LIMITS: Record<string, { ai: number; virtualTryOn: number; wee
 export const PRICE_TO_PLAN: Record<string, string> = {
   // Example: 'price_xxx': 'starter', 'price_yyy': 'pro', 'price_zzz': 'premium'
 };
+
+/**
+ * Map Apple IAP product IDs to plan name.
+ * Add your App Store Connect product IDs (e.g. com.yourapp.pro.monthly).
+ */
+export const APPLE_PRODUCT_TO_PLAN: Record<string, string> = {
+  // Example: 'com.yourapp.pro.monthly': 'pro', 'com.yourapp.premium.yearly': 'premium'
+};

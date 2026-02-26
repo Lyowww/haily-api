@@ -36,6 +36,7 @@ model User {
   renderJobs          RenderJob[]
   creditsLedger       CreditsLedger[]
   subscriptions       Subscription[]
+  purchases           Purchase[]
   usageRecords        Usage[]
   eventsAnalytics     EventAnalytics[]
   notificationSettings NotificationSettings?
@@ -191,28 +192,65 @@ model CreditsLedger {
   @@map("credits_ledger")
 }
 
-// User subscriptions
+// User subscriptions (one per user; platform indicates source: ios = Apple IAP, android/web = Stripe)
 model Subscription {
   id              String   @id @default(uuid())
   userId          String   @map("user_id")
-  plan            String   // "free", "pro", "premium"
+  plan            String   // "starter", "pro", "premium"
   status          String   @default("active") // active, cancelled, expired, trial
+  platform        String?  @default("android") // "ios" | "android" | "web" — source of the subscription
   stripeCustomerId String?  @map("stripe_customer_id")
   stripeSubscriptionId String? @map("stripe_subscription_id")
   currentPeriodStart DateTime? @map("current_period_start")
   currentPeriodEnd   DateTime? @map("current_period_end")
   cancelAtPeriodEnd  Boolean  @default(false) @map("cancel_at_period_end")
+  // Apple IAP–specific (when platform = ios)
+  appleOriginalTransactionId String? @map("apple_original_transaction_id")
+  appleProductId   String?  @map("apple_product_id") // e.g. com.yourapp.pro.monthly
+  appleReceiptData String?  @map("apple_receipt_data") @db.Text // last known receipt (base64) for restore
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purchases       Purchase[]
 
   @@unique([userId])
   @@index([userId])
   @@index([status])
+  @@index([platform])
   @@index([stripeCustomerId])
   @@index([stripeSubscriptionId])
+  @@index([appleOriginalTransactionId])
   @@map("subscriptions")
+}
+
+// Purchase records (audit trail and restore): one row per verified purchase/subscription
+model Purchase {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  subscriptionId  String?  @map("subscription_id")
+  platform        String   // "ios" | "android" | "web"
+  externalId      String   @map("external_id") // Stripe subscription_id or Apple original_transaction_id
+  productId       String   @map("product_id")   // Stripe price_id or Apple product_id
+  plan            String   // "pro", "premium", etc.
+  status          String   @default("active")  // active, cancelled, expired, refunded
+  amountCents     Int?     @map("amount_cents")
+  currency        String?  @default("usd")
+  periodStart     DateTime? @map("period_start")
+  periodEnd       DateTime? @map("period_end")
+  metadata        String?  @db.Text // JSON: raw payload or receipt summary (no full receipt storage)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscription    Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, platform, externalId])
+  @@index([userId])
+  @@index([platform])
+  @@index([externalId])
+  @@index([subscriptionId])
+  @@map("purchases")
 }
 
 // Usage per user per month (for limits); reset monthly via cron

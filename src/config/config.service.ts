@@ -157,6 +157,25 @@ export class ConfigService {
     return !!(this.env.STRIPE_SECRET_KEY && this.env.STRIPE_SECRET_KEY.length > 0);
   }
 
+  /** Apple IAP: shared secret from App Store Connect (In-App Purchases → App-Specific Shared Secret). */
+  get appleIapSharedSecret(): Env['APPLE_IAP_SHARED_SECRET'] {
+    return this.env.APPLE_IAP_SHARED_SECRET;
+  }
+
+  /** Apple IAP: app bundle ID (e.g. com.yourapp.haily). Must match the app that sends receipts. */
+  get appleIapBundleId(): Env['APPLE_IAP_BUNDLE_ID'] {
+    return this.env.APPLE_IAP_BUNDLE_ID;
+  }
+
+  /** Apple IAP: use sandbox (true) or production verify URL. Default true when unset. */
+  get appleIapSandbox(): boolean {
+    return this.env.APPLE_IAP_SANDBOX !== false;
+  }
+
+  get isAppleIapConfigured(): boolean {
+    return !!(this.env.APPLE_IAP_SHARED_SECRET && this.env.APPLE_IAP_BUNDLE_ID);
+  }
+
   get isDevelopment(): boolean {
     return this.env.NODE_ENV === 'development';
   }
