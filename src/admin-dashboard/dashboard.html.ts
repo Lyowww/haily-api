@@ -81,6 +81,9 @@ export function getDashboardHtml(): string {
           <div class="card" style="flex: 1;">
             <h2 id="chatTitle">Select a conversation</h2>
             <div id="messagesBox" class="hidden">
+              <div class="send-row" style="margin-bottom: 0.5rem;">
+                <button type="button" class="secondary" id="messagesRefresh">Refresh</button>
+              </div>
               <div id="messages" class="messages"></div>
               <div class="send-row">
                 <input type="text" id="supportInput" placeholder="Type support message...">
@@ -121,7 +124,6 @@ export function getDashboardHtml(): string {
     </div>
   </div>
 
-  <script src="/socket.io/socket.io.js"></script>
   <script>
     const BASE = '${base}';
     const API_BASE = window.location.origin + BASE.replace('/admin-dashboard', '');
@@ -191,8 +193,6 @@ export function getDashboardHtml(): string {
 
     // Help Center
     let selectedConversation = null;
-    let adminSocket = null;
-    let subscribedUserId = null;
 
     async function loadConversations() {
       const token = getToken();
@@ -216,11 +216,6 @@ export function getDashboardHtml(): string {
       document.getElementById('chatTitle').textContent = c.user?.email || c.userId;
       show(document.getElementById('messagesBox'));
       loadMessages(c.id);
-      if (adminSocket) {
-        if (subscribedUserId) adminSocket.emit('admin:unsubscribe_user', { userId: subscribedUserId });
-        adminSocket.emit('admin:subscribe_user', { userId: c.userId });
-        subscribedUserId = c.userId;
-      } else connectAdminSocket(c.userId);
     }
 
     async function loadMessages(conversationId) {
@@ -241,29 +236,9 @@ export function getDashboardHtml(): string {
       el.scrollTop = el.scrollHeight;
     }
 
-    function connectAdminSocket(userId) {
-      const token = getToken();
-      if (!token) return;
-      if (!window.io) { console.warn('Socket.IO not loaded'); return; }
-      const ns = '/admin-dashboard-socket';
-      const socketUrl = window.location.origin + ns;
-      const socket = window.io(socketUrl, { path: '/socket.io', auth: { token }, transports: ['websocket', 'polling'] });
-      adminSocket = socket;
-      subscribedUserId = userId;
-      socket.on('connect', () => {
-        socket.emit('admin:subscribe_user', { userId });
-      });
-      socket.on('connect_error', (err) => {
-        console.error('Admin socket connection failed', err.message);
-      });
-      socket.on('disconnect', (reason) => {
-        if (reason === 'io server disconnect') console.warn('Admin socket disconnected by server');
-      });
-      socket.on('help_center:message', (m) => {
-        if (selectedConversation && selectedConversation.userId === subscribedUserId) appendMessage(m);
-      });
-      socket.on('admin:error', (err) => console.error('Admin socket error', err));
-    }
+    document.getElementById('messagesRefresh').addEventListener('click', () => {
+      if (selectedConversation) loadMessages(selectedConversation.id);
+    });
 
     document.getElementById('supportSend').addEventListener('click', sendSupportMessage);
     document.getElementById('supportInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendSupportMessage(); });
@@ -273,18 +248,13 @@ export function getDashboardHtml(): string {
       const input = document.getElementById('supportInput');
       const text = input.value.trim();
       if (!text) return;
-      if (adminSocket) {
-        adminSocket.emit('admin:send_support', { userId: selectedConversation.userId, text }, (res) => {
-          if (res?.message) appendMessage(res.message);
-          if (res?.error) console.error(res.error);
-          input.value = '';
-        });
-      } else {
+      try {
         const res = await api(BASE + '/help-center/conversations/' + selectedConversation.userId + '/messages', { method: 'POST', body: { text } });
+        if (!res.ok) { const err = await res.json().catch(() => ({})); console.error(err.message || err.error || 'Send failed'); return; }
         const msg = await res.json();
         if (msg.id) appendMessage(msg);
         input.value = '';
-      }
+      } catch (err) { console.error(err); }
     }
 
     // Tables

@@ -76,31 +76,14 @@ var __setFunctionName = (this && this.__setFunctionName) || function (f, name, p
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.HelpCenterModule = void 0;
 var common_1 = require("@nestjs/common");
-var jwt_1 = require("@nestjs/jwt");
-var config_1 = require("../config");
 var prisma_1 = require("../prisma");
 var help_center_controller_1 = require("./help-center.controller");
-var help_center_gateway_1 = require("./help-center.gateway");
 var help_center_service_1 = require("./help-center.service");
 var HelpCenterModule = function () {
     var _classDecorators = [(0, common_1.Module)({
-            imports: [
-                prisma_1.PrismaModule,
-                jwt_1.JwtModule.registerAsync({
-                    imports: [config_1.ConfigModule],
-                    useFactory: function (configService) { return __awaiter(void 0, void 0, void 0, function () {
-                        return __generator(this, function (_a) {
-                            return [2 /*return*/, ({
-                                    secret: configService.jwtSecret,
-                                    signOptions: { expiresIn: '7d' },
-                                })];
-                        });
-                    }); },
-                    inject: [config_1.ConfigService],
-                }),
-            ],
+            imports: [prisma_1.PrismaModule],
             controllers: [help_center_controller_1.HelpCenterController],
-            providers: [help_center_service_1.HelpCenterService, help_center_gateway_1.HelpCenterGateway],
+            providers: [help_center_service_1.HelpCenterService],
             exports: [help_center_service_1.HelpCenterService],
         })];
     var _classDescriptor;

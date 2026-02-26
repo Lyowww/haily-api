@@ -8,7 +8,6 @@ import { AdminHelpCenterController } from './admin-help-center.controller';
 import { AdminTablesController } from './admin-tables.controller';
 import { AdminAuthService } from './admin-auth.service';
 import { AdminAuthGuard } from './admin-auth.guard';
-import { AdminGateway } from './admin.gateway';
 
 @Module({
   imports: [
@@ -29,7 +28,7 @@ import { AdminGateway } from './admin.gateway';
     AdminHelpCenterController,
     AdminTablesController,
   ],
-  providers: [AdminAuthService, AdminAuthGuard, AdminGateway],
+  providers: [AdminAuthService, AdminAuthGuard],
   exports: [AdminAuthService],
 })
 export class AdminDashboardModule {}
