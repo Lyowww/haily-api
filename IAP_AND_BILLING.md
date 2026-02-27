@@ -11,13 +11,19 @@ Subscription status is stored per user with a `platform` field (`ios` | `android
 
 ## 1. Database
 
-Run migrations so the new columns and `purchases` table exist:
+Apply the migration so the new columns (`platform`, `apple_original_transaction_id`, `apple_product_id`, `apple_receipt_data`) and the `purchases` table exist.
+
+**Option A – Prisma (recommended)**  
+In the environment where your app runs (e.g. production with `DATABASE_URL` pointing to PostgreSQL):
 
 ```bash
-npx prisma migrate dev --name add_platform_and_purchases
+npx prisma migrate deploy
 ```
 
-If you use a different database provider than your existing migrations, create the migration and apply it in your environment (e.g. `prisma migrate deploy` in production).
+**Option B – Manual SQL**  
+If `migrate deploy` is not used (e.g. different migration history), run the SQL in  
+`prisma/migrations/20260226120000_add_platform_and_purchases/migration.sql`  
+against your PostgreSQL database (e.g. via Neon SQL editor or `psql`).
 
 **Schema summary:**
 

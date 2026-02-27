@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { recognizeWardrobeItem } from './recognizeWardrobeItem';
 import { CutoutService } from '../cutout/cutout.service';
@@ -76,9 +76,11 @@ export class WardrobeService {
   }
 
   async deleteItem(userId: string, itemId: string) {
-    return this.prisma.wardrobeItem.delete({
+    const deleted = await this.prisma.wardrobeItem.deleteMany({
       where: { id: itemId, userId },
     });
+
+    return { deleted: deleted.count > 0 };
   }
 
   async updateItem(
@@ -92,9 +94,17 @@ export class WardrobeService {
       data.seasonTags = JSON.stringify(updates.seasonTags);
     }
 
-    return this.prisma.wardrobeItem.update({
+    const updated = await this.prisma.wardrobeItem.updateMany({
       where: { id: itemId, userId },
       data,
+    });
+
+    if (updated.count === 0) {
+      throw new NotFoundException('Wardrobe item not found');
+    }
+
+    return this.prisma.wardrobeItem.findUnique({
+      where: { id: itemId },
     });
   }
 }
