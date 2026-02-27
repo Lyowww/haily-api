@@ -68,6 +68,20 @@ export class OutfitController {
     return this.outfitService.getWeekPlan(req.user.userId, query.weekStartDate);
   }
 
+  @Get('today')
+  @ApiOperation({
+    summary: 'Get today outfit for the current user',
+    description:
+      'Returns the outfit for today based on the current week and UTC weekday (0=Mon..6=Sun), using the same Monday-based weekStartDate normalization as the weekly plan.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Returns today outfit, or null if not set yet',
+  })
+  async getToday(@Request() req: any) {
+    return this.outfitService.getTodayOutfit(req.user.userId);
+  }
+
   @Post('weekly/generate')
   @UseGuards(SubscriptionGuard)
   @SubscriptionCheck('weekly')

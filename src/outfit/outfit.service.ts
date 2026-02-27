@@ -684,5 +684,40 @@ export class OutfitService {
 
     return { deleted: deleted.count > 0 };
   }
+
+  /**
+   * Get today's outfit for the user based on the current week and day index.
+   * Uses the same Monday-based weekStartDate normalization as the weekly plan.
+   */
+  async getTodayOutfit(userId: string) {
+    const now = new Date();
+    const weekStart = getWeekStartDate(now);
+    const weekdayUtc = now.getUTCDay(); // 0=Sun..6=Sat in UTC
+    const dayIndexMonday0 = (weekdayUtc + 6) % 7; // 0=Mon..6=Sun
+
+    const outfit = await this.prisma.outfit.findUnique({
+      where: {
+        userId_weekStartDate_dayIndex: {
+          userId,
+          weekStartDate: weekStart,
+          dayIndex: dayIndexMonday0,
+        },
+      },
+      include: {
+        outfitItems: {
+          include: {
+            wardrobeItem: true,
+          },
+        },
+      },
+    });
+
+    return {
+      weekStartDate: weekStart.toISOString().slice(0, 10),
+      dayIndex: dayIndexMonday0,
+      weekday: WEEKDAY_NAMES[dayIndexMonday0],
+      outfit: outfit ?? null,
+    };
+  }
 }
 
