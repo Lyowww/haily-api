@@ -5,6 +5,7 @@ import { UpdateNotificationSettingsDto } from './dto';
 import { validateOutfitAgainstWeather } from './outfit-weather.validator';
 import { getWeekStartDate } from '../outfit/outfit.service';
 import { SeasonTag } from '../wardrobe/enums';
+import { FirebasePushService } from './firebase-push.service';
 
 function parseNotifyMinutes(hhmm: string): number | null {
   const m = /^(\d{2}):(\d{2})$/.exec(hhmm);
@@ -181,6 +182,7 @@ export class NotificationsService {
   constructor(
     private prisma: PrismaService,
     private weatherService: WeatherService,
+    private firebasePush: FirebasePushService,
   ) {}
 
   async getOrCreateSettings(userId: string) {
@@ -196,6 +198,8 @@ export class NotificationsService {
       data: {
         enabled: dto.enabled ?? undefined,
         expoPushToken: dto.expoPushToken ?? undefined,
+        fcmToken: dto.fcmToken ?? undefined,
+        deviceType: dto.deviceType ?? undefined,
         latitude: dto.latitude ?? undefined,
         longitude: dto.longitude ?? undefined,
         timezone: dto.timezone ?? undefined,
@@ -429,9 +433,15 @@ export class NotificationsService {
       },
     });
 
-    // Try push (best-effort)
+    // Try push via Firebase FCM (preferred) or Expo (fallback), best-effort
     let sent = false;
-    if (settings.expoPushToken) {
+    if (settings.fcmToken && this.firebasePush.isConfigured) {
+      sent = await this.firebasePush.sendToToken(settings.fcmToken, {
+        title,
+        body,
+        data: { notificationId: created.id, ...data },
+      });
+    } else if (settings.expoPushToken) {
       sent = await this.trySendExpoPush(settings.expoPushToken, {
         title,
         body,

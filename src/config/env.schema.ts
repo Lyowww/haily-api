@@ -87,6 +87,11 @@ export const envSchema = z.object({
 
   // Admin dashboard (optional – when set, /api/admin-dashboard is protected by this password)
   ADMIN_PASSWORD: z.string().optional(),
+
+  // Firebase (optional – required for FCM push notifications from backend)
+  FIREBASE_PROJECT_ID: z.string().optional(),
+  FIREBASE_CLIENT_EMAIL: z.string().optional(),
+  FIREBASE_PRIVATE_KEY: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -12,6 +12,16 @@ export class UpdateNotificationSettingsDto {
   @IsString()
   expoPushToken?: string;
 
+  @ApiPropertyOptional({ example: 'fcm_token_string_here' })
+  @IsOptional()
+  @IsString()
+  fcmToken?: string;
+
+  @ApiPropertyOptional({ example: 'ios', description: 'Device platform: ios | android | web' })
+  @IsOptional()
+  @IsString()
+  deviceType?: string;
+
   @ApiPropertyOptional({ example: 40.1811 })
   @IsOptional()
   @IsNumber()

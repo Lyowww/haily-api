@@ -5,11 +5,12 @@ import { WeatherModule } from '../weather';
 import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
 import { NotificationsScheduler } from './notifications.scheduler';
+import { FirebasePushService } from './firebase-push.service';
 
 @Module({
   imports: [PrismaModule, WeatherModule, ScheduleModule.forRoot()],
   controllers: [NotificationsController],
-  providers: [NotificationsService, NotificationsScheduler],
+  providers: [NotificationsService, NotificationsScheduler, FirebasePushService],
   exports: [NotificationsService],
 })
 export class NotificationsModule {}

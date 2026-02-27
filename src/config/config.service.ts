@@ -215,5 +215,27 @@ export class ConfigService {
   get adminPassword(): string | undefined {
     return this.env.ADMIN_PASSWORD;
   }
+
+  /** Firebase project ID (for FCM via firebase-admin). */
+  get firebaseProjectId(): Env['FIREBASE_PROJECT_ID'] {
+    return this.env.FIREBASE_PROJECT_ID;
+  }
+
+  /** Firebase client email (for FCM via firebase-admin). */
+  get firebaseClientEmail(): Env['FIREBASE_CLIENT_EMAIL'] {
+    return this.env.FIREBASE_CLIENT_EMAIL;
+  }
+
+  /** Firebase private key (for FCM via firebase-admin). Supports \\n replacement. */
+  get firebasePrivateKey(): string | undefined {
+    const raw = this.env.FIREBASE_PRIVATE_KEY;
+    if (!raw) return undefined;
+    return raw.replace(/\\n/g, '\n');
+  }
+
+  /** True when all Firebase vars are set (backend can send FCM). */
+  get isFirebaseConfigured(): boolean {
+    return !!(this.firebaseProjectId && this.firebaseClientEmail && this.firebasePrivateKey);
+  }
 }
 
