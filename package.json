@@ -59,7 +59,7 @@
     "@imgly/background-removal-node": "^1.4.5"
   },
   "overrides": {
-    "brace-expansion": "5.0.4"
+    "brace-expansion": "2.0.2"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.4.9",
