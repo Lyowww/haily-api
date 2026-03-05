@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "installCommand": "npm install && npm install @prisma/engines@5.22.0 --no-save",
+  "installCommand": "npm ci",
   "buildCommand": "npm run build",
   "rewrites": [{ "source": "/(.*)", "destination": "/api" }]
 }
