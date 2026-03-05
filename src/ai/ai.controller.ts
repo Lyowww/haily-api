@@ -82,6 +82,14 @@ class GenerateOutfitDto {
   @IsOptional()
   @IsString()
   stylePrompt?: string;
+
+  @ApiProperty({
+    required: false,
+    description: 'When using Puter.js: data URL from generateAIImage (e.g. image.src). If present, server saves this image and returns same response shape.',
+  })
+  @IsOptional()
+  @IsString()
+  generatedImageDataUrl?: string;
 }
 
 @ApiTags('AI')
@@ -112,7 +120,8 @@ export class AIController {
   async generateOutfit(@Request() req: any, @Body() dto: GenerateOutfitDto) {
     const result = await this.aiService.generateOutfitImage(dto);
     const userId = req.user?.id ?? req.user?.userId;
-    if (userId) {
+    // Only count billing when we actually return an image (client sent generatedImageDataUrl)
+    if (userId && 'imageUrl' in result) {
       await this.billingService.incrementAiGenerations(userId);
       await this.billingService.incrementVirtualTryon(userId);
     }

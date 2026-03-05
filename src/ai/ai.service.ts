@@ -18,6 +18,8 @@ interface OutfitGenerationRequest {
   userPhotoUrl: string;
   /** Optional base64 image data. Use when URL is not reachable (e.g. same-host on Vercel). */
   userPhotoBase64?: string;
+  /** When using Puter.js client-side generation: pass the data URL from generateAIImage result (image.src). */
+  generatedImageDataUrl?: string;
   user?: {
     sex?: 'male' | 'female';
     age?: number;
@@ -365,9 +367,88 @@ ${svgRects}
   }
 
   /**
-   * Generate outfit image using DALL-E 3
+   * Build a text-only outfit prompt for Puter.ai txt2img (no image references).
    */
-  async generateOutfitImage(request: OutfitGenerationRequest): Promise<{ imageUrl: string; prompt: string; localPath: string }> {
+  private buildOutfitTextPrompt(request: OutfitGenerationRequest): string {
+    const isTop = (c: string) => ['top', 'tops', 'outerwear', 'jacket', 'jackets', 'coat', 'coats'].includes(c);
+    const isBottom = (c: string) => ['bottom', 'bottoms', 'pants', 'jeans', 'trousers', 'shorts', 'skirt'].includes(c);
+    const isShoes = (c: string) => ['shoes', 'shoe', 'sneakers', 'boots', 'sandals', 'heels', 'flats', 'loafers'].includes(c);
+    const parts: string[] = [];
+    const top = request.clothingItems.find(item => isTop(item.category));
+    const bottom = request.clothingItems.find(item => isBottom(item.category));
+    const shoes = request.clothingItems.find(item => isShoes(item.category));
+    if (top) parts.push('top');
+    if (bottom) parts.push('bottom');
+    if (shoes) parts.push('shoes');
+    const outfitDesc = parts.length ? parts.join(', ') : 'outfit';
+    const styleContext = typeof request.stylePrompt === 'string' ? request.stylePrompt.trim() : '';
+    const style = styleContext ? ` Style: ${styleContext}.` : '';
+    return `Full body standing photograph of a person wearing ${outfitDesc}. Professional lighting, plain background, photorealistic.${style}`.trim();
+  }
+
+  /**
+   * Decode a data URL (e.g. from Puter.ai image.src) to a buffer.
+   */
+  private dataUrlToBuffer(dataUrl: string): { buffer: Buffer; mimeType: string } {
+    const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (!match) throw new BadRequestException('Invalid generatedImageDataUrl: expected data URL (data:...;base64,...)');
+    const mimeType = match[1].trim();
+    const base64 = match[2];
+    const buffer = Buffer.from(base64, 'base64');
+    if (!buffer.length) throw new BadRequestException('Invalid generatedImageDataUrl: empty base64 data');
+    return { buffer, mimeType };
+  }
+
+  /**
+   * Generate outfit image using Puter.js (client-generated) or return prompt for client generation.
+   * When generatedImageDataUrl is provided, server saves it and returns same response shape.
+   * When not provided, returns { prompt, requireClientGeneration: true } for client to call Puter then re-POST with the image.
+   */
+  async generateOutfitImage(
+    request: OutfitGenerationRequest,
+  ): Promise<
+    | { imageUrl: string; prompt: string; localPath: string }
+    | { prompt: string; requireClientGeneration: true }
+  > {
+    const textPrompt = this.buildOutfitTextPrompt(request);
+
+    // Puter flow: client already generated the image and sent it
+    if (request.generatedImageDataUrl) {
+      try {
+        console.log('🎨 Saving client-generated outfit image (Puter.js)...');
+        const { buffer } = this.dataUrlToBuffer(request.generatedImageDataUrl);
+        const pngBuffer = await this.normalizeImageToPng(buffer);
+        const filename = `outfit-${Date.now()}.png`;
+        const { url } = await this.uploadService.uploadBuffer(
+          pngBuffer,
+          `generated/${filename}`,
+          'image/png',
+        );
+        let finalPath = url;
+        try {
+          const cutout = await this.cutoutService.generateCutoutForImageUrl(url);
+          if (cutout?.cutoutUrl) finalPath = cutout.cutoutUrl;
+        } catch {
+          // ignore
+        }
+        const fullPath = finalPath.startsWith('http')
+          ? finalPath
+          : `http://localhost:${this.configService.port ?? 3000}${finalPath}`;
+        return { imageUrl: fullPath, localPath: fullPath, prompt: textPrompt };
+      } catch (err: any) {
+        console.error('Error saving client-generated outfit image:', err);
+        throw err;
+      }
+    }
+
+    // Return prompt so client can generate with Puter.ai.txt2img() then POST again with generatedImageDataUrl
+    return { prompt: textPrompt, requireClientGeneration: true };
+  }
+
+  /**
+   * @deprecated Legacy path: Generate outfit image using OpenAI gpt-image-1 (images.edit). Prefer Puter.js client flow.
+   */
+  async generateOutfitImageOpenAI(request: OutfitGenerationRequest): Promise<{ imageUrl: string; prompt: string; localPath: string }> {
     try {
       console.log('🎨 Starting Virtual Try-On with gpt-image-1...');
       console.log('📦 Received clothing items:', request.clothingItems.map(item => ({
