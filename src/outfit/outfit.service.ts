@@ -399,7 +399,9 @@ export class OutfitService {
             },
             stylePrompt: dto.preferredStyle ? `Style: ${dto.preferredStyle}.` : undefined,
           });
-          imageUrl = result.imageUrl;
+          if ('imageUrl' in result) {
+            imageUrl = result.imageUrl;
+          }
           promptVersion = result.prompt;
         } catch (err) {
           console.error(`AI outfit generation failed for day ${plan.dayIndex}:`, err);
@@ -571,7 +573,9 @@ export class OutfitService {
           },
           stylePrompt: dto.preferredStyle ? `Style: ${dto.preferredStyle}.` : undefined,
         });
-        imageUrl = result.imageUrl;
+        if ('imageUrl' in result) {
+          imageUrl = result.imageUrl;
+        }
         promptVersion = result.prompt;
       } catch (err) {
         console.error(`AI outfit generation failed for day ${dayIndex}:`, err);
