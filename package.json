@@ -19,7 +19,7 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "prisma:seed": "ts-node prisma/seed.ts",
-    "postinstall": "node scripts/vercel-prune.js && (node -e \"if(!process.env.VERCEL)require('child_process').execSync('prisma generate',{stdio:'inherit'})\")"
+    "postinstall": "node scripts/vercel-prune.js && prisma generate"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.996.0",
