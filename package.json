@@ -4,7 +4,7 @@
   "private": true,
   "description": "AI Outfit Generator API - NestJS",
   "scripts": {
-    "build": "node -e \"if(process.env.VERCEL)require('child_process').execSync('npm install @prisma/engines@5.22.0 --no-save',{stdio:'inherit'})\" && prisma generate && nest build",
+    "build": "prisma generate && nest build",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
@@ -34,6 +34,7 @@
     "@nestjs/swagger": "^8.1.0",
     "@nestjs/websockets": "^10.4.22",
     "@prisma/client": "^5.20.0",
+    "@prisma/engines": "5.22.0",
     "bcryptjs": "^2.4.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
