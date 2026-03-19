@@ -63,6 +63,7 @@ export interface OutfitRecommendationInput {
   wardrobeItems: Array<{
     id: string;
     name: string | null;
+    isFavorite: boolean;
     category: string;
     subcategory: string | null;
     seasons: string[];
@@ -86,6 +87,7 @@ export interface OutfitRecommendationInput {
     date?: string;
   } | null;
   dateLabel?: 'today' | 'tomorrow';
+  favoritesMode?: 'neutral' | 'prefer';
 }
 
 export interface OutfitRecommendationResult {
@@ -361,6 +363,7 @@ Rules:
     const eventText = `${input.event?.name ?? ''} ${input.event?.type ?? ''} ${
       input.customEventText ?? ''
     }`.toLowerCase();
+    const preferFavorites = input.favoritesMode === 'prefer';
 
     const scoreItem = (
       item: OutfitRecommendationInput['wardrobeItems'][number],
@@ -371,6 +374,7 @@ Rules:
       if (item.occasions.some((occasion) => eventText.includes(occasion))) score += 2;
       if (item.tags.some((tag) => tasteValues.includes(tag))) score += 2;
       if (item.tags.some((tag) => eventText.includes(tag))) score += 1;
+      if (preferFavorites && item.isFavorite) score += 3;
       return score;
     };
 
@@ -402,8 +406,9 @@ Rules:
 
     return {
       outfitItemIds,
-      explanation:
-        'This outfit was selected with the built-in fallback matcher using weather, event context, and onboarding preferences.',
+      explanation: preferFavorites
+        ? 'This outfit was selected with the built-in fallback matcher using weather, event context, onboarding preferences, and a preference for your favorite wardrobe items.'
+        : 'This outfit was selected with the built-in fallback matcher using weather, event context, and onboarding preferences.',
       weatherMatch: outfitItemIds.length > 0,
       styleMatch: outfitItemIds.length > 0,
     };
@@ -434,7 +439,7 @@ Rules:
           {
             role: 'system',
             content:
-              'You are a wardrobe recommendation engine. Return deterministic JSON only and choose items that fit weather, event context, and user taste.',
+              'You are a wardrobe recommendation engine. Return deterministic JSON only and choose items that fit weather, event context, and user taste. If favoritesMode is "prefer", strongly prefer favorite items when they are still appropriate. If favoritesMode is "neutral", do not give favorites any special weight.',
           },
           {
             role: 'user',
@@ -455,6 +460,11 @@ Rules:
                   explanation: 'string',
                   weatherMatch: 'boolean',
                   styleMatch: 'boolean',
+                },
+                favoritesMode: {
+                  neutral: 'Treat favorites the same as any other wardrobe item.',
+                  prefer:
+                    'Bias toward favorite items, but never at the expense of obvious weather or event mismatch.',
                 },
               },
               input,

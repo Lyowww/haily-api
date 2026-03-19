@@ -44,6 +44,7 @@ export class WardrobeService {
     return {
       userId,
       name: overrides?.name ?? metadata.name,
+      isFavorite: overrides?.isFavorite ?? false,
       category: overrides?.category ?? metadata.category,
       subcategory: overrides?.subcategory ?? metadata.subcategory,
       imageUrl,
@@ -74,6 +75,7 @@ export class WardrobeService {
       data: {
         userId,
         name: dto.name,
+        isFavorite: dto.isFavorite ?? false,
         category: dto.category,
         subcategory: dto.subcategory ?? null,
         imageUrl: dto.imageUrl,
@@ -106,6 +108,7 @@ export class WardrobeService {
     return this.prisma.wardrobeItem.create({
       data: this.buildItemCreateData(userId, metadata, upload.url, {
         name: dto.name ?? metadata.name,
+        isFavorite: dto.isFavorite ?? false,
         // Do not force categoryHint here; AI classification should decide final category.
         category: metadata.category,
       }),
@@ -115,14 +118,14 @@ export class WardrobeService {
   async getUserWardrobe(userId: string) {
     return this.prisma.wardrobeItem.findMany({
       where: { userId },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ isFavorite: 'desc' }, { createdAt: 'desc' }],
     });
   }
 
   async getItemsByCategory(userId: string, category: string) {
     return this.prisma.wardrobeItem.findMany({
       where: { userId, category },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ isFavorite: 'desc' }, { createdAt: 'desc' }],
     });
   }
 
@@ -147,6 +150,7 @@ export class WardrobeService {
       where: { id: itemId },
       data: {
         ...(updates.name !== undefined ? { name: updates.name } : {}),
+        ...(updates.isFavorite !== undefined ? { isFavorite: updates.isFavorite } : {}),
         ...(updates.category !== undefined ? { category: updates.category } : {}),
         ...(updates.subcategory !== undefined
           ? { subcategory: updates.subcategory }
@@ -166,6 +170,10 @@ export class WardrobeService {
         ...(updates.tags !== undefined ? { tags: updates.tags } : {}),
       },
     });
+  }
+
+  async renameItem(userId: string, itemId: string, name: string) {
+    return this.updateItem(userId, itemId, { name });
   }
 
   private toTemperatureRangeJson(value: {

@@ -28,5 +28,16 @@ export class GenerateOutfitDto {
   @IsOptional()
   @IsIn(['today', 'tomorrow'])
   date?: 'today' | 'tomorrow';
+
+  @ApiProperty({
+    required: false,
+    enum: ['neutral', 'prefer'],
+    example: 'prefer',
+    description:
+      'How generation should treat favorite wardrobe items. "prefer" biases toward favorites when they still fit the weather/event, while "neutral" gives no special weight.',
+  })
+  @IsOptional()
+  @IsIn(['neutral', 'prefer'])
+  favoritesMode?: 'neutral' | 'prefer';
 }
 

@@ -73,6 +73,7 @@ model WardrobeItem {
   id              String   @id @default(uuid())
   userId          String   @map("user_id")
   name            String?
+  isFavorite      Boolean  @default(false) @map("is_favorite")
   subcategory     String?
   imageUrl        String   @map("image_url")
   cutoutImageUrl  String?  @map("cutout_image_url")
@@ -114,6 +115,7 @@ model WardrobeItem {
   user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([userId, isFavorite])
   @@index([category])
   @@index([colorFamily])
   @@map("wardrobe_items")

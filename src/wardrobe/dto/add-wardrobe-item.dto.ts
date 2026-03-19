@@ -2,6 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsInt,
   IsOptional,
   IsString,
@@ -24,6 +25,15 @@ export class AddWardrobeItemDto {
   @ApiProperty({ example: 'White Oxford Shirt' })
   @IsString()
   name!: string;
+
+  @ApiProperty({
+    example: false,
+    required: false,
+    description: 'Whether this item is a user favorite.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  isFavorite?: boolean;
 
   @ApiProperty({ example: 'tops' })
   @IsString()

@@ -137,6 +137,7 @@ export class OutfitService {
       wardrobeItems: wardrobeItems.map((item) => ({
         id: item.id,
         name: item.name,
+        isFavorite: item.isFavorite,
         category: item.category,
         subcategory: item.subcategory,
         seasons: item.seasons,
@@ -162,6 +163,7 @@ export class OutfitService {
       customEventText: dto.customEventText ?? null,
       weather,
       dateLabel,
+      favoritesMode: dto.favoritesMode ?? 'neutral',
     });
 
     return {

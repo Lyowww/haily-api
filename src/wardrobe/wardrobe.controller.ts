@@ -23,6 +23,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { WardrobeService } from './wardrobe.service';
 import { AddWardrobeItemDto } from './dto/add-wardrobe-item.dto';
+import { RenameWardrobeItemDto } from './dto/rename-wardrobe-item.dto';
 import { UpdateWardrobeItemDto } from './dto/update-wardrobe-item.dto';
 import { UploadWardrobeItemDto } from './dto/upload-wardrobe-item.dto';
 
@@ -63,6 +64,10 @@ export class WardrobeController {
         name: {
           type: 'string',
           example: 'Blue Linen Shirt',
+        },
+        isFavorite: {
+          type: 'boolean',
+          example: false,
         },
         categoryHint: {
           type: 'string',
@@ -112,6 +117,16 @@ export class WardrobeController {
     @Body() dto: UpdateWardrobeItemDto,
   ) {
     return this.wardrobeService.updateItem(req.user.userId, id, dto);
+  }
+
+  @Patch(':id/rename')
+  @ApiOperation({ summary: 'Rename wardrobe item' })
+  async renameItem(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() dto: RenameWardrobeItemDto,
+  ) {
+    return this.wardrobeService.renameItem(req.user.userId, id, dto.name);
   }
 }
 
