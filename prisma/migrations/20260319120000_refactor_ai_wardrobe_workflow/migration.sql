@@ -15,15 +15,32 @@ ALTER TABLE "wardrobe_items"
 ALTER TABLE "wardrobe_items"
   ALTER COLUMN "tags" DROP DEFAULT;
 
-ALTER TABLE "wardrobe_items"
-  ALTER COLUMN "tags" TYPE TEXT[]
-  USING CASE
-    WHEN "tags" IS NULL OR BTRIM("tags") = '' THEN ARRAY[]::TEXT[]
-    WHEN LEFT(BTRIM("tags"), 1) = '[' THEN ARRAY(
-      SELECT jsonb_array_elements_text("tags"::jsonb)
-    )
-    ELSE ARRAY["tags"]
-  END;
+-- Convert legacy tags TEXT -> TEXT[] without subquery in ALTER USING.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'wardrobe_items'
+      AND column_name = 'tags'
+      AND data_type <> 'ARRAY'
+  ) THEN
+    ALTER TABLE "wardrobe_items" ADD COLUMN IF NOT EXISTS "tags_tmp" TEXT[] DEFAULT ARRAY[]::TEXT[];
+
+    UPDATE "wardrobe_items"
+    SET "tags_tmp" = CASE
+      WHEN "tags" IS NULL OR BTRIM("tags") = '' THEN ARRAY[]::TEXT[]
+      WHEN LEFT(BTRIM("tags"), 1) = '[' THEN COALESCE(ARRAY(
+        SELECT jsonb_array_elements_text("tags"::jsonb)
+      ), ARRAY[]::TEXT[])
+      ELSE ARRAY["tags"]
+    END;
+
+    ALTER TABLE "wardrobe_items" DROP COLUMN "tags";
+    ALTER TABLE "wardrobe_items" RENAME COLUMN "tags_tmp" TO "tags";
+  END IF;
+END $$;
 
 ALTER TABLE "wardrobe_items"
   ALTER COLUMN "tags" SET DEFAULT ARRAY[]::TEXT[],

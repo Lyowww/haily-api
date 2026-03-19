@@ -145,6 +145,56 @@ export class AIService {
     return { category: 'tops', subcategory: null };
   }
 
+  private normalizeWardrobeCategory(
+    value: unknown,
+    fallback: string = 'tops',
+  ): string {
+    const normalized = String(value ?? '').trim().toLowerCase();
+    if (!normalized) return fallback;
+
+    const direct = new Set([
+      'tops',
+      'bottoms',
+      'outerwear',
+      'dresses_jumpsuits',
+      'shoes',
+    ]);
+    if (direct.has(normalized)) return normalized;
+
+    const synonyms: Record<string, string> = {
+      top: 'tops',
+      bottom: 'bottoms',
+      dress: 'dresses_jumpsuits',
+      dresses: 'dresses_jumpsuits',
+      jumpsuit: 'dresses_jumpsuits',
+      jumpsuits: 'dresses_jumpsuits',
+      shoe: 'shoes',
+      sneaker: 'shoes',
+      sneakers: 'shoes',
+      boots: 'shoes',
+      heels: 'shoes',
+      sandals: 'shoes',
+      loafers: 'shoes',
+      jacket: 'outerwear',
+      coat: 'outerwear',
+      blazer: 'outerwear',
+      cardigan: 'outerwear',
+      hoodie: 'tops',
+      sweater: 'tops',
+      shirt: 'tops',
+      't-shirt': 'tops',
+      tee: 'tops',
+      blouse: 'tops',
+      jeans: 'bottoms',
+      pants: 'bottoms',
+      trousers: 'bottoms',
+      shorts: 'bottoms',
+      skirt: 'bottoms',
+    };
+
+    return synonyms[normalized] ?? fallback;
+  }
+
   private fallbackWardrobeMetadata(params: {
     imageUrl: string;
     name?: string;
@@ -156,7 +206,10 @@ export class AIService {
 
     return {
       name: params.name?.trim() || inferred.subcategory || 'Wardrobe item',
-      category: params.categoryHint?.trim().toLowerCase() || inferred.category,
+      category: this.normalizeWardrobeCategory(
+        params.categoryHint ?? inferred.category,
+        inferred.category,
+      ),
       subcategory: inferred.subcategory,
       seasons: ['all_season'],
       temperatureRange: { minC: 12, maxC: 24 },
@@ -244,9 +297,10 @@ Rules:
 
       return {
         name: String(parsed.name ?? params.name ?? inferred.subcategory ?? 'Wardrobe item'),
-        category: String(
+        category: this.normalizeWardrobeCategory(
           parsed.category ?? params.categoryHint ?? inferred.category,
-        ).toLowerCase(),
+          inferred.category,
+        ),
         subcategory: parsed.subcategory ? String(parsed.subcategory).toLowerCase() : inferred.subcategory,
         seasons: this.normalizeStringArray(parsed.seasons),
         temperatureRange: {

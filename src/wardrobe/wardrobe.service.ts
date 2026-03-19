@@ -106,7 +106,8 @@ export class WardrobeService {
     return this.prisma.wardrobeItem.create({
       data: this.buildItemCreateData(userId, metadata, upload.url, {
         name: dto.name ?? metadata.name,
-        category: dto.categoryHint ?? metadata.category,
+        // Do not force categoryHint here; AI classification should decide final category.
+        category: metadata.category,
       }),
     });
   }
