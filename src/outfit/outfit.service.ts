@@ -164,22 +164,11 @@ export class OutfitService {
       dateLabel,
     });
 
-    const moodImage = await this.aiService.generateOutfitMoodImage({
-      eventName: event?.name ?? null,
-      eventType: event?.type ?? null,
-      customEventText: dto.customEventText ?? null,
-      dateLabel,
-      weather,
-    });
-
     return {
       outfit_items: recommendation.outfitItemIds,
       explanation: recommendation.explanation,
       weather_match: recommendation.weatherMatch,
       style_match: recommendation.styleMatch,
-      mood_image_url: moodImage.imageUrl,
-      mood_image_prompt: moodImage.prompt,
-      mood_image_source: moodImage.source,
     };
   }
 

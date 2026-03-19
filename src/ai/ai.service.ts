@@ -95,12 +95,6 @@ export interface OutfitRecommendationResult {
   styleMatch: boolean;
 }
 
-export interface OutfitMoodImageResult {
-  imageUrl: string;
-  prompt: string;
-  source: 'ai' | 'fallback';
-}
-
 @Injectable()
 export class AIService {
   private openai: OpenAI;
@@ -130,11 +124,6 @@ export class AIService {
   private parseJsonObject<T>(raw: string): T {
     const cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
     return JSON.parse(cleaned) as T;
-  }
-
-  private resolvePublicUrl(pathOrUrl: string): string {
-    if (pathOrUrl.startsWith('http')) return pathOrUrl;
-    return `http://localhost:${this.configService.port ?? 3000}${pathOrUrl}`;
   }
 
   private inferCategoryFromText(text: string): { category: string; subcategory: string | null } {
@@ -502,116 +491,6 @@ Rules:
       console.error('Error generating structured outfit recommendation:', error);
       return this.fallbackOutfitRecommendation(input);
     }
-  }
-
-  async generateOutfitMoodImage(params: {
-    eventName?: string | null;
-    eventType?: string | null;
-    customEventText?: string | null;
-    dateLabel?: 'today' | 'tomorrow';
-    weather?: {
-      condition?: string;
-      temperatureC?: number;
-      minTempC?: number;
-      maxTempC?: number;
-    } | null;
-  }): Promise<OutfitMoodImageResult> {
-    const eventText = [
-      params.eventName ?? '',
-      params.eventType ?? '',
-      params.customEventText ?? '',
-    ]
-      .join(' ')
-      .trim();
-    const weatherText = params.weather
-      ? `${params.weather.condition ?? 'clear'} ${Math.round(
-          Number(
-            params.weather.temperatureC ??
-              (Number(params.weather.minTempC ?? 18) +
-                Number(params.weather.maxTempC ?? 24)) /
-                2,
-          ),
-        )}C`
-      : 'clear 22C';
-    const prompt =
-      `Stylish editorial mood board image for a fashion outfit recommendation. ` +
-      `Theme: ${eventText || 'daily city style'}. ` +
-      `Weather context: ${weatherText}. ` +
-      `Aesthetic: cinematic lighting, elegant composition, rich colors, modern, aspirational, no text, no logos, no watermarks.`;
-
-    if (this.hasOpenAi) {
-      try {
-        const response = await this.openai.images.generate({
-          model: 'gpt-image-1',
-          prompt,
-          size: '1024x1024',
-          n: 1,
-        });
-        const imageUrl = response.data?.[0]?.url;
-        const imageB64 = response.data?.[0]?.b64_json;
-        const filename = `generated/mood-${Date.now()}.png`;
-
-        if (imageB64) {
-          const buffer = Buffer.from(imageB64, 'base64');
-          const uploaded = await this.uploadService.uploadBuffer(
-            buffer,
-            filename,
-            'image/png',
-          );
-          return {
-            imageUrl: this.resolvePublicUrl(uploaded.url),
-            prompt,
-            source: 'ai',
-          };
-        }
-
-        if (imageUrl) {
-          const storedUrl = await this.downloadAndSaveImage(
-            imageUrl,
-            `mood-${Date.now()}.png`,
-          );
-          return {
-            imageUrl: this.resolvePublicUrl(storedUrl),
-            prompt,
-            source: 'ai',
-          };
-        }
-      } catch (error) {
-        console.warn('Falling back to generated mood placeholder image:', error);
-      }
-    }
-
-    const safeTheme = (eventText || 'daily style')
-      .replace(/[<>&"]/g, '')
-      .slice(0, 80);
-    const safeWeather = weatherText.replace(/[<>&"]/g, '').slice(0, 50);
-    const safeDate = (params.dateLabel ?? 'today').replace(/[<>&"]/g, '');
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024">
-  <defs>
-    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#2B2D42"/>
-      <stop offset="45%" stop-color="#3A506B"/>
-      <stop offset="100%" stop-color="#5BC0BE"/>
-    </linearGradient>
-  </defs>
-  <rect width="1024" height="1024" fill="url(#g)"/>
-  <circle cx="830" cy="220" r="160" fill="#FFFFFF22"/>
-  <circle cx="210" cy="860" r="220" fill="#FFFFFF14"/>
-  <text x="80" y="760" fill="#F8F9FA" font-family="Arial, sans-serif" font-size="40" opacity="0.95">Style mood</text>
-  <text x="80" y="815" fill="#F8F9FA" font-family="Arial, sans-serif" font-size="56" font-weight="700">${safeTheme}</text>
-  <text x="80" y="875" fill="#E9ECEF" font-family="Arial, sans-serif" font-size="32">${safeWeather} · ${safeDate}</text>
-</svg>`;
-    const fallbackUpload = await this.uploadService.uploadBuffer(
-      Buffer.from(svg),
-      `generated/mood-fallback-${Date.now()}.svg`,
-      'image/svg+xml',
-    );
-
-    return {
-      imageUrl: this.resolvePublicUrl(fallbackUpload.url),
-      prompt,
-      source: 'fallback',
-    };
   }
 
   /**

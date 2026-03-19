@@ -40,9 +40,6 @@ export class OutfitController {
         explanation: 'Balanced for your event and weather.',
         weather_match: true,
         style_match: true,
-        mood_image_url: 'https://example.com/uploads/generated/mood-123.png',
-        mood_image_prompt: 'Stylish editorial mood board image...',
-        mood_image_source: 'ai',
       },
     },
   })
