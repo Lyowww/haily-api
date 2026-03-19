@@ -1,52 +1,55 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsNumber, IsOptional, IsArray, IsObject, ValidateNested } from 'class-validator';
-import { Type } from 'class-transformer';
-
-class WeatherDataDto {
-  @ApiProperty({ example: 2 })
-  @IsNumber()
-  temperature!: number;
-
-  @ApiProperty({ example: 'Cold' })
-  @IsString()
-  condition!: string;
-
-  @ApiProperty({ example: 'Yerevan, Armenia' })
-  @IsString()
-  locationName!: string;
-}
+import { ApiProperty } from '@nestjs/swagger';
+import {
+  IsArray,
+  IsBoolean,
+  IsObject,
+  IsOptional,
+  IsString,
+  IsUUID,
+} from 'class-validator';
 
 export class SaveOutfitDto {
-  @ApiProperty({ example: '/uploads/generated/outfit-123.png' })
+  @ApiProperty({ required: false, example: 'Work Dinner Look' })
+  @IsOptional()
   @IsString()
-  imageUrl!: string;
+  name?: string;
 
-  @ApiProperty({ example: 'Full body image of a person wearing a blue shirt and jeans...' })
+  @ApiProperty({ required: false, format: 'uuid' })
+  @IsOptional()
+  @IsUUID()
+  eventId?: string;
+
+  @ApiProperty({ example: ['wardrobe-item-id-1', 'wardrobe-item-id-2'], type: [String] })
+  @IsArray()
+  @IsString({ each: true })
+  itemIds!: string[];
+
+  @ApiProperty({ required: false, example: true })
+  @IsOptional()
+  @IsBoolean()
+  aiGenerated?: boolean;
+
+  @ApiProperty({
+    required: false,
+    example: 'This outfit balances your classic style preference with a mild evening forecast.',
+  })
+  @IsOptional()
   @IsString()
-  prompt!: string;
+  explanation?: string;
 
-  @ApiProperty({ type: WeatherDataDto, required: false })
+  @ApiProperty({ required: false, example: true })
+  @IsOptional()
+  @IsBoolean()
+  weatherMatch?: boolean;
+
+  @ApiProperty({ required: false, example: true })
+  @IsOptional()
+  @IsBoolean()
+  styleMatch?: boolean;
+
+  @ApiProperty({ required: false, type: Object })
   @IsOptional()
   @IsObject()
-  @ValidateNested()
-  @Type(() => WeatherDataDto)
-  weather?: WeatherDataDto;
-
-  @ApiProperty({ required: false })
-  @IsArray()
-  @IsOptional()
-  wardrobeItemIds?: string[];
-
-  /** Week start (Monday) in ISO date string. If omitted, uses current week. */
-  @ApiPropertyOptional({ example: '2025-02-24' })
-  @IsOptional()
-  @IsString()
-  weekStartDate?: string;
-
-  /** Day in week: 0 = Monday, 6 = Sunday. If omitted, uses today. */
-  @ApiPropertyOptional({ example: 0, minimum: 0, maximum: 6 })
-  @IsOptional()
-  @IsNumber()
-  dayIndex?: number;
+  generationContext?: Record<string, any>;
 }
 

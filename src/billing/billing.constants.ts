@@ -1,8 +1,8 @@
 /** Plan limits: -1 means unlimited. */
-export const PLAN_LIMITS: Record<string, { ai: number; virtualTryOn: number; weekly: number }> = {
-  starter: { ai: 3, virtualTryOn: 3, weekly: 1 },
-  pro: { ai: -1, virtualTryOn: -1, weekly: -1 },
-  premium: { ai: -1, virtualTryOn: -1, weekly: -1 },
+export const PLAN_LIMITS: Record<string, { ai: number; virtualTryOn: number }> = {
+  starter: { ai: 3, virtualTryOn: 3 },
+  pro: { ai: -1, virtualTryOn: -1 },
+  premium: { ai: -1, virtualTryOn: -1 },
 };
 
 /** Map Stripe price ID to plan name. Must match prices in Stripe Dashboard. */

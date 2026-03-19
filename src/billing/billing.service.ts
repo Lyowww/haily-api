@@ -19,7 +19,6 @@ export interface SubscriptionStatus {
   limits: {
     aiRemaining: number;
     virtualRemaining: number;
-    weeklyRemaining: number;
   };
 }
 
@@ -83,19 +82,9 @@ export class BillingService {
     });
   }
 
-  /** Increment weekly generation count. Call after successful weekly generate. */
-  async incrementWeeklyGenerations(userId: string): Promise<void> {
-    const month = this.currentMonth();
-    await this.prisma.usage.upsert({
-      where: { userId_month: { userId, month } },
-      create: { userId, month, weeklyGenerationCount: 1 },
-      update: { weeklyGenerationCount: { increment: 1 } },
-    });
-  }
-
   /** Get plan limits; -1 means unlimited. */
-  getPlanLimits(plan: string): { ai: number; virtualTryOn: number; weekly: number } {
-    return PLAN_LIMITS[plan] ?? { ai: 0, virtualTryOn: 0, weekly: 0 };
+  getPlanLimits(plan: string): { ai: number; virtualTryOn: number } {
+    return PLAN_LIMITS[plan] ?? { ai: 0, virtualTryOn: 0 };
   }
 
   /** Resolve plan from Stripe price ID. */
@@ -149,16 +138,6 @@ export class BillingService {
     }
   }
 
-  async assertCanUseWeeklyGenerate(userId: string): Promise<void> {
-    const status = await this.getSubscriptionStatus(userId);
-    if (status.status !== 'active') {
-      throw new BadRequestException('Subscription required');
-    }
-    if (status.limits.weeklyRemaining === 0) {
-      throw new BadRequestException('Weekly generation limit reached for this month');
-    }
-  }
-
   /** Get subscription status and remaining limits for the user. */
   async getSubscriptionStatus(userId: string): Promise<SubscriptionStatus> {
     let subscription = await this.prisma.subscription.findUnique({
@@ -189,7 +168,6 @@ export class BillingService {
         limits: {
           aiRemaining: 0,
           virtualRemaining: 0,
-          weeklyRemaining: 0,
         },
       };
     }
@@ -199,8 +177,6 @@ export class BillingService {
       limits.ai < 0 ? 999999 : Math.max(0, limits.ai - usage.aiGenerationsCount);
     const virtualRemaining =
       limits.virtualTryOn < 0 ? 999999 : Math.max(0, limits.virtualTryOn - usage.virtualTryonCount);
-    const weeklyRemaining =
-      limits.weekly < 0 ? 999999 : Math.max(0, limits.weekly - usage.weeklyGenerationCount);
 
     return {
       plan: subscription.plan,
@@ -212,7 +188,6 @@ export class BillingService {
       limits: {
         aiRemaining,
         virtualRemaining,
-        weeklyRemaining,
       },
     };
   }

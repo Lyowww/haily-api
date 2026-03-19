@@ -3,7 +3,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import { WeatherService } from '../weather';
 import { UpdateNotificationSettingsDto } from './dto';
 import { validateOutfitAgainstWeather } from './outfit-weather.validator';
-import { getWeekStartDate } from '../outfit/outfit.service';
 import { SeasonTag } from '../wardrobe/enums';
 import { FirebasePushService } from './firebase-push.service';
 
@@ -251,116 +250,35 @@ export class NotificationsService {
       timezone: settings.timezone || 'auto',
     });
 
-    // Ensure there is an outfit for "today" built from the wardrobe.
-    // We align "today" with the user's timezone and normalize the date
-    // to the same Monday-based weekStartDate used in outfit planning.
-    const tzForOutfit = settings.timezone || 'UTC';
-    const now = new Date();
-    const { dateKey: localDateKey } = getLocalParts(now, tzForOutfit);
-    const localMidnightUtc = new Date(`${localDateKey}T00:00:00.000Z`);
-    const weekStartDate = getWeekStartDate(localMidnightUtc);
-    const weekdayUtc = localMidnightUtc.getUTCDay(); // 0=Sun..6=Sat
-    const dayIndexMonday0 = (weekdayUtc + 6) % 7; // 0=Mon..6=Sun
-
-    let todayOutfit = await this.prisma.outfit.findFirst({
-      where: {
-        userId,
-        weekStartDate,
-        dayIndex: dayIndexMonday0,
-      },
-      include: {
-        outfitItems: {
-          include: {
-            wardrobeItem: true,
-          },
-        },
-      },
+    const latestOutfit = await this.prisma.outfit.findFirst({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
     });
-
-    if (!todayOutfit) {
-      const wardrobeItems = await this.prisma.wardrobeItem.findMany({
-        where: { userId },
-        select: {
-          id: true,
-          category: true,
-          seasonTags: true,
-        },
-      });
-
-      if (wardrobeItems.length > 0) {
-        const picked = pickWardrobeIdsForToday(wardrobeItems, {
-          minTempC: weather.today.minTempC,
-          maxTempC: weather.today.maxTempC,
-          condition: weather.today.condition,
-          dayIndex: dayIndexMonday0,
-        });
-
-        if (picked.wardrobeItemIds.length > 0) {
-          todayOutfit = await this.prisma.outfit.upsert({
-            where: {
-              userId_weekStartDate_dayIndex: {
-                userId,
-                weekStartDate,
-                dayIndex: dayIndexMonday0,
-              },
-            },
-            create: {
-              userId,
-              weekStartDate,
-              dayIndex: dayIndexMonday0,
-              status: 'ready',
-              category: 'saved',
-              weather: JSON.stringify({
-                temperature: picked.avgTemp,
-                condition: picked.condition,
-                locationName: '',
-              }),
-              outfitItems: {
-                create: picked.wardrobeItemIds.map((wardrobeItemId) => ({ wardrobeItemId })),
-              },
-            },
-            update: {
-              status: 'ready',
-              category: 'saved',
-              weather: JSON.stringify({
-                temperature: picked.avgTemp,
-                condition: picked.condition,
-                locationName: '',
-              }),
-              outfitItems: {
-                deleteMany: {},
-                create: picked.wardrobeItemIds.map((wardrobeItemId) => ({ wardrobeItemId })),
-              },
-            },
-            include: {
-              outfitItems: {
-                include: {
-                  wardrobeItem: true,
-                },
-              },
-            },
-          });
-        }
-      }
-    }
-
-    const latestOutfit = todayOutfit
-      ? todayOutfit
-      : await this.prisma.outfit.findFirst({
-          where: { userId, status: 'ready' },
-          orderBy: { createdAt: 'desc' },
-          include: {
-            outfitItems: {
-              include: {
-                wardrobeItem: true,
-              },
-            },
-          },
-        });
 
     if (!latestOutfit) {
       return { ok: true, skipped: 'no_outfit' as const, weather };
     }
+
+    const outfitWardrobeItems =
+      latestOutfit.items.length > 0
+        ? await this.prisma.wardrobeItem.findMany({
+            where: {
+              userId,
+              id: { in: latestOutfit.items },
+            },
+            select: {
+              category: true,
+              seasonTags: true,
+            },
+          })
+        : [];
+
+    const savedWeatherJson =
+      latestOutfit.generationContext &&
+      typeof latestOutfit.generationContext === 'object' &&
+      'weather' in latestOutfit.generationContext
+        ? JSON.stringify((latestOutfit.generationContext as Record<string, any>).weather)
+        : null;
 
     const validation = validateOutfitAgainstWeather({
       weather: {
@@ -375,10 +293,10 @@ export class NotificationsService {
         tempChangeThresholdC: settings.tempChangeThresholdC,
       },
       outfit: {
-        savedWeatherJson: latestOutfit.weather,
-        wardrobeItems: latestOutfit.outfitItems.map((oi) => ({
-          category: oi.wardrobeItem?.category,
-          seasonTags: oi.wardrobeItem?.seasonTags,
+        savedWeatherJson,
+        wardrobeItems: outfitWardrobeItems.map((item) => ({
+          category: item.category,
+          seasonTags: item.seasonTags,
         })),
       },
     });

@@ -1,28 +1,30 @@
-import { Controller, Post, Get, Delete, Body, Param, Patch, Request } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiProperty, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Request,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { WardrobeService } from './wardrobe.service';
-import { IsString, IsOptional, IsArray } from 'class-validator';
-
-class AddWardrobeItemDto {
-  @ApiProperty()
-  @IsString()
-  category!: string;
-
-  @ApiProperty()
-  @IsString()
-  imageUrl!: string;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  tags?: any;
-}
-
-class UpdateWardrobeItemDto {
-  @ApiProperty({ required: false, type: [String] })
-  @IsOptional()
-  @IsArray()
-  seasonTags?: string[];
-}
+import { AddWardrobeItemDto } from './dto/add-wardrobe-item.dto';
+import { UpdateWardrobeItemDto } from './dto/update-wardrobe-item.dto';
+import { UploadWardrobeItemDto } from './dto/upload-wardrobe-item.dto';
 
 @ApiTags('Wardrobe')
 @ApiBearerAuth()
@@ -34,14 +36,53 @@ export class WardrobeController {
   @ApiOperation({ summary: 'Add item to wardrobe' })
   @ApiResponse({ status: 201, description: 'Item added successfully' })
   async addItem(@Request() req: any, @Body() addItemDto: AddWardrobeItemDto) {
-    // Get userId from authenticated user (JWT token)
-    const userId = req.user.userId;
-    return this.wardrobeService.addItem(
-      userId,
-      addItemDto.category,
-      addItemDto.imageUrl,
-      addItemDto.tags,
-    );
+    return this.wardrobeService.addItem(req.user.userId, addItemDto);
+  }
+
+  @Post('upload')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: {
+        fileSize: 10 * 1024 * 1024,
+      },
+    }),
+  )
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Upload a wardrobe item image and enrich it with AI metadata',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+        },
+        name: {
+          type: 'string',
+          example: 'Blue Linen Shirt',
+        },
+        categoryHint: {
+          type: 'string',
+          example: 'tops',
+        },
+      },
+      required: ['file'],
+    },
+  })
+  @ApiResponse({ status: 201, description: 'Wardrobe item uploaded successfully' })
+  async uploadItem(
+    @Request() req: any,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() dto: UploadWardrobeItemDto,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No file provided');
+    }
+
+    return this.wardrobeService.uploadAndCreateItem(req.user.userId, file, dto);
   }
 
   @Get()

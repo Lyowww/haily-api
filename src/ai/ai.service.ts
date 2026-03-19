@@ -43,6 +43,58 @@ export interface WardrobeAnalysisResult {
   recommendations: string[];
 }
 
+export interface WardrobeMetadataResult {
+  name: string;
+  category: string;
+  subcategory: string | null;
+  seasons: string[];
+  temperatureRange: { minC: number; maxC: number };
+  occasions: string[];
+  tags: string[];
+  aiDescription: string;
+  colorFamily: string;
+  colorHex?: string;
+  styleTags: string[];
+  fitTag: string;
+  rawAiJson?: string;
+}
+
+export interface OutfitRecommendationInput {
+  wardrobeItems: Array<{
+    id: string;
+    name: string | null;
+    category: string;
+    subcategory: string | null;
+    seasons: string[];
+    occasions: string[];
+    tags: string[];
+    temperatureRange?: { minC?: number; maxC?: number } | null;
+  }>;
+  tasteProfile?: Record<string, any> | null;
+  event?: {
+    id?: string;
+    name: string;
+    type?: string | null;
+    date?: string;
+  } | null;
+  customEventText?: string | null;
+  weather?: {
+    temperatureC?: number;
+    minTempC?: number;
+    maxTempC?: number;
+    condition?: string;
+    date?: string;
+  } | null;
+  dateLabel?: 'today' | 'tomorrow';
+}
+
+export interface OutfitRecommendationResult {
+  outfitItemIds: string[];
+  explanation: string;
+  weatherMatch: boolean;
+  styleMatch: boolean;
+}
+
 @Injectable()
 export class AIService {
   private openai: OpenAI;
@@ -56,6 +108,335 @@ export class AIService {
     this.openai = new OpenAI({
       apiKey: this.configService.openAiApiKey,
     });
+  }
+
+  private get hasOpenAi(): boolean {
+    return !!this.configService.openAiApiKey;
+  }
+
+  private normalizeStringArray(input: unknown): string[] {
+    if (!Array.isArray(input)) return [];
+    return input
+      .map((value) => String(value).trim().toLowerCase())
+      .filter((value) => value.length > 0);
+  }
+
+  private parseJsonObject<T>(raw: string): T {
+    const cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+    return JSON.parse(cleaned) as T;
+  }
+
+  private inferCategoryFromText(text: string): { category: string; subcategory: string | null } {
+    const value = text.toLowerCase();
+    const rules: Array<{ match: RegExp; category: string; subcategory: string }> = [
+      { match: /\b(t-shirt|tee|shirt|blouse|hoodie|sweater|top|polo)\b/, category: 'tops', subcategory: 't-shirt' },
+      { match: /\b(jeans|trousers|pants|shorts|skirt|bottom)\b/, category: 'bottoms', subcategory: 'trousers' },
+      { match: /\b(jacket|coat|blazer|outerwear|cardigan)\b/, category: 'outerwear', subcategory: 'jacket' },
+      { match: /\b(dress|jumpsuit)\b/, category: 'dresses_jumpsuits', subcategory: 'dress' },
+      { match: /\b(sneakers|boots|heels|sandals|shoes|loafers)\b/, category: 'shoes', subcategory: 'sneakers' },
+    ];
+
+    for (const rule of rules) {
+      if (rule.match.test(value)) {
+        return { category: rule.category, subcategory: rule.subcategory };
+      }
+    }
+
+    return { category: 'tops', subcategory: null };
+  }
+
+  private fallbackWardrobeMetadata(params: {
+    imageUrl: string;
+    name?: string;
+    categoryHint?: string;
+  }): WardrobeMetadataResult {
+    const inferred = this.inferCategoryFromText(
+      `${params.name ?? ''} ${params.categoryHint ?? ''}`,
+    );
+
+    return {
+      name: params.name?.trim() || inferred.subcategory || 'Wardrobe item',
+      category: params.categoryHint?.trim().toLowerCase() || inferred.category,
+      subcategory: inferred.subcategory,
+      seasons: ['all_season'],
+      temperatureRange: { minC: 12, maxC: 24 },
+      occasions: ['daily'],
+      tags: [inferred.category, ...(inferred.subcategory ? [inferred.subcategory] : [])],
+      aiDescription:
+        'AI metadata fallback was used, so this item has a generic wardrobe description.',
+      colorFamily: 'unknown',
+      styleTags: [],
+      fitTag: 'unknown',
+      rawAiJson: JSON.stringify({
+        provider: 'fallback',
+        imageUrl: params.imageUrl,
+      }),
+    };
+  }
+
+  async classifyWardrobeItemFromImage(params: {
+    imageUrl: string;
+    name?: string;
+    categoryHint?: string;
+  }): Promise<WardrobeMetadataResult> {
+    if (!this.hasOpenAi) {
+      return this.fallbackWardrobeMetadata(params);
+    }
+
+    try {
+      const preparedImage = await this.readImageBuffer(params.imageUrl);
+      const imageDataUrl = `data:${preparedImage.mimeType};base64,${preparedImage.buffer.toString('base64')}`;
+      const prompt = `You are an apparel metadata engine.
+Return ONLY valid JSON with this exact shape:
+{
+  "name": "short human-readable item name",
+  "category": "one of tops, bottoms, outerwear, dresses_jumpsuits, shoes",
+  "subcategory": "specific subtype like t-shirt, jeans, blazer, sneakers",
+  "seasons": ["winter", "spring", "summer", "autumn"],
+  "temperatureRange": { "minC": 0, "maxC": 30 },
+  "occasions": ["daily", "work", "party", "travel", "formal", "casual"],
+  "tags": ["style or material tags"],
+  "aiDescription": "1-2 sentence wardrobe description",
+  "colorFamily": "dominant color family",
+  "colorHex": "#RRGGBB or null",
+  "styleTags": ["casual", "streetwear", "classic", "minimal", "smart_casual"],
+  "fitTag": "slim | regular | relaxed | oversized | unknown"
+}
+
+Rules:
+- Be deterministic and conservative.
+- Use Celsius.
+- If uncertain, still choose the closest valid category.
+- Do not include markdown.`;
+
+      const response = await this.openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        temperature: 0,
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: `${prompt}\nCategory hint: ${params.categoryHint ?? 'none'}\nItem name hint: ${params.name ?? 'none'}`,
+              },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: imageDataUrl,
+                },
+              },
+            ],
+          },
+        ],
+      });
+
+      const raw = response.choices[0]?.message?.content;
+      if (!raw) {
+        return this.fallbackWardrobeMetadata(params);
+      }
+
+      const parsed = this.parseJsonObject<any>(raw);
+      const inferred = this.inferCategoryFromText(
+        `${parsed.name ?? ''} ${parsed.category ?? ''} ${parsed.subcategory ?? ''}`,
+      );
+
+      return {
+        name: String(parsed.name ?? params.name ?? inferred.subcategory ?? 'Wardrobe item'),
+        category: String(
+          parsed.category ?? params.categoryHint ?? inferred.category,
+        ).toLowerCase(),
+        subcategory: parsed.subcategory ? String(parsed.subcategory).toLowerCase() : inferred.subcategory,
+        seasons: this.normalizeStringArray(parsed.seasons),
+        temperatureRange: {
+          minC: Number(parsed?.temperatureRange?.minC ?? 12),
+          maxC: Number(parsed?.temperatureRange?.maxC ?? 24),
+        },
+        occasions: this.normalizeStringArray(parsed.occasions),
+        tags: this.normalizeStringArray(parsed.tags),
+        aiDescription: String(
+          parsed.aiDescription ??
+            'AI analyzed this item and generated a concise wardrobe description.',
+        ),
+        colorFamily: String(parsed.colorFamily ?? 'unknown').toLowerCase(),
+        colorHex: parsed.colorHex ? String(parsed.colorHex) : undefined,
+        styleTags: this.normalizeStringArray(parsed.styleTags),
+        fitTag: String(parsed.fitTag ?? 'unknown').toLowerCase(),
+        rawAiJson: raw,
+      };
+    } catch (error) {
+      console.error('Error classifying wardrobe item:', error);
+      return this.fallbackWardrobeMetadata(params);
+    }
+  }
+
+  private itemMatchesWeather(
+    item: OutfitRecommendationInput['wardrobeItems'][number],
+    targetTemp: number,
+  ): boolean {
+    const min = Number(item.temperatureRange?.minC ?? 0);
+    const max = Number(item.temperatureRange?.maxC ?? 40);
+    return targetTemp >= min && targetTemp <= max;
+  }
+
+  private pickBestByScore(
+    items: OutfitRecommendationInput['wardrobeItems'],
+    scoreFn: (
+      item: OutfitRecommendationInput['wardrobeItems'][number],
+      index: number,
+    ) => number,
+  ) {
+    return [...items]
+      .map((item, index) => ({ item, score: scoreFn(item, index) }))
+      .sort((a, b) => b.score - a.score)[0]?.item ?? null;
+  }
+
+  private fallbackOutfitRecommendation(
+    input: OutfitRecommendationInput,
+  ): OutfitRecommendationResult {
+    const targetTemp = Number(
+      input.weather?.temperatureC ??
+        (Number(input.weather?.minTempC ?? 18) +
+          Number(input.weather?.maxTempC ?? 22)) /
+          2,
+    );
+    const tasteValues = Object.values(input.tasteProfile ?? {}).map((entry: any) =>
+      String(entry?.value ?? '').toLowerCase(),
+    );
+    const eventText = `${input.event?.name ?? ''} ${input.event?.type ?? ''} ${
+      input.customEventText ?? ''
+    }`.toLowerCase();
+
+    const scoreItem = (
+      item: OutfitRecommendationInput['wardrobeItems'][number],
+      base: number,
+    ) => {
+      let score = base;
+      if (this.itemMatchesWeather(item, targetTemp)) score += 3;
+      if (item.occasions.some((occasion) => eventText.includes(occasion))) score += 2;
+      if (item.tags.some((tag) => tasteValues.includes(tag))) score += 2;
+      if (item.tags.some((tag) => eventText.includes(tag))) score += 1;
+      return score;
+    };
+
+    const tops = input.wardrobeItems.filter((item) =>
+      ['tops', 'dresses_jumpsuits'].includes(item.category),
+    );
+    const bottoms = input.wardrobeItems.filter((item) => item.category === 'bottoms');
+    const shoes = input.wardrobeItems.filter((item) => item.category === 'shoes');
+    const outerwear = input.wardrobeItems.filter(
+      (item) => item.category === 'outerwear',
+    );
+
+    const top = this.pickBestByScore(tops, (item) => scoreItem(item, 5));
+    const bottom =
+      top?.category === 'dresses_jumpsuits'
+        ? null
+        : this.pickBestByScore(bottoms, (item) => scoreItem(item, 4));
+    const shoe = this.pickBestByScore(shoes, (item) => scoreItem(item, 4));
+    const coat =
+      targetTemp <= 12 ||
+      tasteValues.includes('runs_cold') ||
+      tasteValues.includes('layering')
+        ? this.pickBestByScore(outerwear, (item) => scoreItem(item, 3))
+        : null;
+
+    const outfitItemIds = [top?.id, bottom?.id, shoe?.id, coat?.id].filter(
+      (value): value is string => !!value,
+    );
+
+    return {
+      outfitItemIds,
+      explanation:
+        'This outfit was selected with the built-in fallback matcher using weather, event context, and onboarding preferences.',
+      weatherMatch: outfitItemIds.length > 0,
+      styleMatch: outfitItemIds.length > 0,
+    };
+  }
+
+  async generateStructuredOutfitRecommendation(
+    input: OutfitRecommendationInput,
+  ): Promise<OutfitRecommendationResult> {
+    if (!input.wardrobeItems.length) {
+      return {
+        outfitItemIds: [],
+        explanation: 'No wardrobe items are available for recommendation.',
+        weatherMatch: false,
+        styleMatch: false,
+      };
+    }
+
+    if (!this.hasOpenAi) {
+      return this.fallbackOutfitRecommendation(input);
+    }
+
+    try {
+      const response = await this.openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        temperature: 0,
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are a wardrobe recommendation engine. Return deterministic JSON only and choose items that fit weather, event context, and user taste.',
+          },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              instructions: {
+                allowedCategories: [
+                  'tops',
+                  'bottoms',
+                  'outerwear',
+                  'dresses_jumpsuits',
+                  'shoes',
+                ],
+                outputShape: {
+                  topItemId: 'string | null',
+                  bottomItemId: 'string | null',
+                  shoesItemId: 'string | null',
+                  outerwearItemId: 'string | null',
+                  explanation: 'string',
+                  weatherMatch: 'boolean',
+                  styleMatch: 'boolean',
+                },
+              },
+              input,
+            }),
+          },
+        ],
+      });
+
+      const raw = response.choices[0]?.message?.content;
+      if (!raw) {
+        return this.fallbackOutfitRecommendation(input);
+      }
+
+      const parsed = this.parseJsonObject<any>(raw);
+      const outfitItemIds = [
+        parsed.topItemId,
+        parsed.bottomItemId,
+        parsed.shoesItemId,
+        parsed.outerwearItemId,
+      ]
+        .filter((value): value is string => typeof value === 'string' && value.length > 0)
+        .filter((value, index, array) => array.indexOf(value) === index);
+
+      return {
+        outfitItemIds,
+        explanation: String(
+          parsed.explanation ??
+            'The outfit was generated from your wardrobe and profile preferences.',
+        ),
+        weatherMatch: Boolean(parsed.weatherMatch),
+        styleMatch: Boolean(parsed.styleMatch),
+      };
+    } catch (error) {
+      console.error('Error generating structured outfit recommendation:', error);
+      return this.fallbackOutfitRecommendation(input);
+    }
   }
 
   /**

@@ -193,7 +193,7 @@ export class BillingController {
         currentPeriodStart: '2026-03-01',
         currentPeriodEnd: '2026-04-01',
         cancelAtPeriodEnd: false,
-        limits: { aiRemaining: 100, virtualRemaining: 100, weeklyRemaining: 1 },
+        limits: { aiRemaining: 100, virtualRemaining: 100 },
       },
     },
   })

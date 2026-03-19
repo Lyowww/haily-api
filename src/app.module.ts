@@ -17,6 +17,8 @@ import { NotificationsModule } from './notifications';
 import { HelpCenterModule } from './help-center';
 import { BillingModule } from './billing/billing.module';
 import { AdminDashboardModule } from './admin-dashboard/admin-dashboard.module';
+import { OnboardingModule } from './onboarding/onboarding.module';
+import { UserEventsModule } from './user-events/user-events.module';
 
 @Module({
   imports: [
@@ -30,6 +32,8 @@ import { AdminDashboardModule } from './admin-dashboard/admin-dashboard.module';
     OutfitModule,
     AIModule,
     WardrobeModule,
+    OnboardingModule,
+    UserEventsModule,
     NotificationsModule,
     HelpCenterModule,
     BillingModule,

@@ -15,7 +15,9 @@ model User {
   email               String   @unique
   passwordHash        String?  @map("password_hash")
   avatarBaseImageUrl  String?  @map("avatar_base_image_url")
-  onboardingStatus   String   @default("pending") // pending, completed, skipped
+  onboardingStatus    String   @default("pending") // pending, completed, skipped
+  tasteProfile        Json?    @map("taste_profile")
+  onboardingCompletedAt DateTime? @map("onboarding_completed_at")
   sex                 String?  // male, female
   age                 Int?
   heightCm            Int?     @map("height_cm")
@@ -33,6 +35,7 @@ model User {
   photos              UserPhoto[]
   wardrobeItems       WardrobeItem[]
   outfits             Outfit[]
+  events              UserEvent[]
   renderJobs          RenderJob[]
   creditsLedger       CreditsLedger[]
   subscriptions       Subscription[]
@@ -69,10 +72,16 @@ model UserPhoto {
 model WardrobeItem {
   id              String   @id @default(uuid())
   userId          String   @map("user_id")
+  name            String?
+  subcategory     String?
   imageUrl        String   @map("image_url")
   cutoutImageUrl  String?  @map("cutout_image_url")
   cutoutStatus    String   @default("pending") @map("cutout_status") // pending, ready, failed
   cutoutError     String?  @map("cutout_error")
+  aiDescription   String?  @map("ai_description") @db.Text
+  seasons         String[] @default([])
+  temperatureRange Json?   @map("temperature_range")
+  occasions       String[] @default([])
   
   // AI-recognized metadata (ONE-TIME classification)
   category        String   @default("accessory") // enum: top, bottom, outerwear, shoes, bag, hat, accessory
@@ -95,7 +104,7 @@ model WardrobeItem {
   // Legacy fields (keep for backward compatibility)
   productType     String?  @map("product_type")
   color           String?
-  tags            String?  // JSON string
+  tags            String[] @default([])
   brand           String?
   size            String?
   
@@ -103,7 +112,6 @@ model WardrobeItem {
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  outfitItems     OutfitItem[]
 
   @@index([userId])
   @@index([category])
@@ -111,44 +119,46 @@ model WardrobeItem {
   @@map("wardrobe_items")
 }
 
-// Outfit plans (weekly outfit calendar)
+// Saved or AI-generated outfits
 model Outfit {
   id              String   @id @default(uuid())
   userId          String   @map("user_id")
-  weekStartDate   DateTime @map("week_start_date") // Monday of the week
-  dayIndex        Int      @map("day_index") // 0-6 (Monday-Sunday)
-  status          String   @default("planned") // planned, rendering, ready, failed
-  imageUrl        String?  @map("image_url")
-  promptVersion   String?  @map("prompt_version") // Version of the AI prompt used
-  weather         String?  // JSON: { temperature, condition, location }
-  category        String?  // e.g. "saved" for weekly-plan-generated outfits (shown in user's saved list)
+  name            String?
+  eventId         String?  @map("event_id")
+  items           String[] @default([])
+  aiGenerated     Boolean  @default(false) @map("ai_generated")
+  explanation     String?  @db.Text
+  weatherMatch    Boolean? @map("weather_match")
+  styleMatch      Boolean? @map("style_match")
+  generationContext Json?  @map("generation_context")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  outfitItems     OutfitItem[]
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event           UserEvent? @relation(fields: [eventId], references: [id], onDelete: SetNull)
   renderJobs      RenderJob[]
 
-  @@unique([userId, weekStartDate, dayIndex])
   @@index([userId])
-  @@index([userId, weekStartDate])
-  @@index([userId, status])
-  @@index([status])
+  @@index([eventId])
+  @@index([aiGenerated])
   @@map("outfits")
 }
 
-// Junction table: Outfit -> WardrobeItem
-model OutfitItem {
-  outfitId        String  @map("outfit_id")
-  wardrobeItemId  String  @map("wardrobe_item_id")
+model UserEvent {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  name      String
+  date      DateTime
+  type      String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  outfit          Outfit        @relation(fields: [outfitId], references: [id], onDelete: Cascade)
-  wardrobeItem    WardrobeItem  @relation(fields: [wardrobeItemId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  outfits   Outfit[]
 
-  @@id([outfitId, wardrobeItemId])
-  @@index([outfitId])
-  @@index([wardrobeItemId])
-  @@map("outfit_items")
+  @@index([userId])
+  @@index([userId, date])
+  @@map("events")
 }
 
 // Render job tracking

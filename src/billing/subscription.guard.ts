@@ -8,12 +8,12 @@ import { Reflector } from '@nestjs/core';
 import { BillingService } from './billing.service';
 
 export const SUBSCRIPTION_CHECK_KEY = 'subscriptionCheck';
-export type SubscriptionCheckType = 'ai' | 'virtualTryon' | 'weekly' | 'aiAndVirtualTryon';
+export type SubscriptionCheckType = 'ai' | 'virtualTryon' | 'aiAndVirtualTryon';
 
 /**
  * Guard that ensures user has an active subscription and has not exceeded usage limits.
- * Apply to routes that require subscription (e.g. /ai/generate-outfit, /outfit/weekly/generate).
- * Use SetMetadata(SUBSCRIPTION_CHECK_KEY, 'ai' | 'virtualTryon' | 'weekly') on the handler.
+ * Apply to routes that require subscription (e.g. /ai/generate-outfit).
+ * Use SetMetadata(SUBSCRIPTION_CHECK_KEY, 'ai' | 'virtualTryon') on the handler.
  */
 @Injectable()
 export class SubscriptionGuard implements CanActivate {
@@ -42,9 +42,6 @@ export class SubscriptionGuard implements CanActivate {
         break;
       case 'virtualTryon':
         await this.billingService.assertCanUseVirtualTryon(userId);
-        break;
-      case 'weekly':
-        await this.billingService.assertCanUseWeeklyGenerate(userId);
         break;
       case 'aiAndVirtualTryon':
         await this.billingService.assertCanUseAi(userId);
