@@ -34,6 +34,17 @@ export class OutfitController {
   @ApiResponse({
     status: 201,
     description: 'Outfit recommendation generated successfully',
+    schema: {
+      example: {
+        outfit_items: ['wardrobe-item-id-1', 'wardrobe-item-id-2', 'wardrobe-item-id-3'],
+        explanation: 'Balanced for your event and weather.',
+        weather_match: true,
+        style_match: true,
+        mood_image_url: 'https://example.com/uploads/generated/mood-123.png',
+        mood_image_prompt: 'Stylish editorial mood board image...',
+        mood_image_source: 'ai',
+      },
+    },
   })
   @ApiResponse({ status: 400, description: 'Invalid input' })
   async generateOutfit(@Request() req: any, @Body() generateOutfitDto: GenerateOutfitDto) {
